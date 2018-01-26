@@ -99,8 +99,8 @@
 	getCustomLoader,  setCustomLoader,  removeAllCustomLoaders
 	getDefaultLoader, setDefaultLoader, disableDefaultLoader
 
-	load,    unload
-	require, unrequire
+	load,    unload,    preload
+	require, unrequire, prerequire
 
 	update
 
@@ -572,6 +572,25 @@ function hotLoader.unload(filePath)
 	removeItem(resourcePaths, filePath)
 end
 
+-- preload( filePath, resource [, customLoader ] )
+function hotLoader.preload(filePath, res, loader)
+	if res == nil then
+		log("ERROR: The resource must not be nil. (Maybe you meant to use hotLoader.unload()?)")
+		return
+	end
+
+	if loader then
+		hotLoader.setCustomLoader(filePath, loader)
+	end
+
+	if resources[filePath] == nil then
+		table.insert(resourcePaths, filePath)
+	end
+
+	resources[filePath] = res
+	resourceModifiedTimes[filePath] = getLastModifiedTime(filePath)
+end
+
 
 
 -- Requires a module just like the standard Lua require() function.
@@ -596,6 +615,21 @@ end
 function hotLoader.unrequire(modulePath)
 	modules[modulePath] = nil
 	removeItem(modulePaths, modulePath)
+end
+
+-- prerequire( modulePath, module )
+function hotLoader.prerequire(modulePath, M)
+	if M == nil then
+		log("ERROR: The module must not be nil. (Maybe you meant to use hotLoader.unrequire()?)")
+		return
+	end
+
+	if modules[modulePath] == nil then
+		table.insert(modulePaths, modulePath)
+	end
+
+	modules[modulePath] = M
+	moduleModifiedTimes[modulePath] = getModuleLastModifiedTime(modulePath)
 end
 
 

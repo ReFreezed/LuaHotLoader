@@ -92,6 +92,8 @@ Check the source code for more info.
 - `hotLoader.getDefaultLoader()`
 - `hotLoader.getLoader()`
 - `hotLoader.load()`
+- `hotLoader.preload()`
+- `hotLoader.prerequire()`
 - `hotLoader.removeAllCustomLoaders()`
 - `hotLoader.removeAllLoaders()`
 - `hotLoader.require()`
