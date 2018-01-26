@@ -1,8 +1,8 @@
 --[[============================================================
 --=
---=  Hot File Loading Module v0.1.1
+--=  File Hot-Loading Module
 --=  - Written by Marcus 'ReFreezed' Thunström
---=  - MIT License (See the bottom of this file)
+--=  - MIT License
 --=
 --=  Dependencies:
 --=  - either LuaFileSystem or LÖVE 0.10+
@@ -108,7 +108,39 @@
 
 
 
-local hotLoader             = {}
+local hotLoader = {
+	_VERSION     = "hotLoader v0.1.1",
+	_DESCRIPTION = "File hot-loading module",
+	_URL         = "https://github.com/ReFreezed/LuaHotLoader",
+	_LICENSE     = [[
+		MIT License
+
+		Copyright © 2018 Marcus 'ReFreezed' Thunström
+
+		Permission is hereby granted, free of charge, to any person obtaining a copy
+		of this software and associated documentation files (the "Software"), to deal
+		in the Software without restriction, including without limitation the rights
+		to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+		copies of the Software, and to permit persons to whom the Software is
+		furnished to do so, subject to the following conditions:
+
+		The above copyright notice and this permission notice shall be included
+		in all copies or substantial portions of the Software.
+
+		THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+		IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+		FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+		AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+		WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+		IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+	]]
+}
+
+
+
+--==============================================================
+
+
 
 local checkingInterval      = 1.00
 
@@ -131,7 +163,7 @@ local allowPathsOutsideLove = false
 
 
 --==============================================================
---==============================================================
+--= Local Functions ============================================
 --==============================================================
 
 local fileExists
@@ -372,7 +404,7 @@ end
 
 
 --==============================================================
---==============================================================
+--= Public Functions ===========================================
 --==============================================================
 
 
@@ -424,10 +456,6 @@ function hotLoader.update(dt)
 	end
 
 end
-
-
-
---==============================================================
 
 
 
@@ -616,29 +644,3 @@ if love then
 end
 
 return hotLoader
-
---==============================================================
---=
---=  MIT License
---=
---=  Copyright © 2018 Marcus 'ReFreezed' Thunström
---=
---=  Permission is hereby granted, free of charge, to any person obtaining a copy
---=  of this software and associated documentation files (the "Software"), to deal
---=  in the Software without restriction, including without limitation the rights
---=  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
---=  copies of the Software, and to permit persons to whom the Software is
---=  furnished to do so, subject to the following conditions:
---=
---=  The above copyright notice and this permission notice shall be included in all
---=  copies or substantial portions of the Software.
---=
---=  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
---=  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
---=  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
---=  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
---=  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
---=  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
---=  SOFTWARE.
---=
---==============================================================
