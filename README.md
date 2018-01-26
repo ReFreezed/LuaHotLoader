@@ -4,7 +4,7 @@ Hot-load any file, including Lua files. Works with *LuaFileSystem* or [*LÖVE*](
 
 
 
-## Usage outside LÖVE
+## Usage with LuaFileSystem
 
 ```lua
 local hotLoader     = require("hotLoader")

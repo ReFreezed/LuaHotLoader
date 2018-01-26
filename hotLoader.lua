@@ -11,7 +11,7 @@
 
 
 
-	-- Usage outside LÖVE:
+	-- Usage with LuaFileSystem:
 
 	local hotLoader     = require("hotLoader")
 	local duckImagePath = "duck.jpg"
