@@ -176,7 +176,6 @@ local indexOf, removeItem
 local isLovePath
 local loadModule
 local loadResource
-local log
 
 
 
@@ -325,7 +324,7 @@ function loadModule(modulePath, protected)
 	if protected then
 		local ok, chunkOrErr = pcall(loadLuaFile, getModuleFilePath(modulePath))
 		if not ok then
-			log("ERROR: %s", chunkOrErr)
+			hotLoader.log("ERROR: %s", chunkOrErr)
 			return nil
 		end
 		M = chunkOrErr()
@@ -354,12 +353,12 @@ function loadResource(filePath, protected)
 
 		local ok, resOrErr = pcall(loader, filePath)
 		if not ok then
-			log("ERROR: %s", resOrErr)
+			hotLoader.log("ERROR: %s", resOrErr)
 			return nil, resOrErr
 
 		elseif not resOrErr then
 			local err = "Loader returned nothing for '"..filePath.."'."
-			log("ERROR: %s", err)
+			hotLoader.log("ERROR: %s", err)
 			return nil, err
 		end
 
@@ -396,13 +395,6 @@ end
 
 
 
--- log( formatString, value...)
-function log(s, ...)
-	print(("[hotLoader|%s] "..s):format(os.date"%H:%M:%S", ...))
-end
-
-
-
 --==============================================================
 --= Public Functions ===========================================
 --==============================================================
@@ -420,14 +412,14 @@ function hotLoader.update(dt)
 
 		local modifiedTime = getModuleLastModifiedTime(modulePath)
 		if modifiedTime ~= moduleModifiedTimes[modulePath] then
-			log("Reloading module: %s", modulePath)
+			hotLoader.log("Reloading module: %s", modulePath)
 
 			local M = loadModule(modulePath, true)
 			if M == nil then
-				log("Failed reloading module: %s", modulePath)
+				hotLoader.log("Failed reloading module: %s", modulePath)
 			else
 				modules[modulePath] = M
-				log("Reloaded module: %s", modulePath)
+				hotLoader.log("Reloaded module: %s", modulePath)
 			end
 
 			moduleModifiedTimes[modulePath] = modifiedTime
@@ -440,14 +432,14 @@ function hotLoader.update(dt)
 
 		local modifiedTime = getLastModifiedTime(filePath)
 		if modifiedTime ~= resourceModifiedTimes[filePath] then
-			log("Reloading resource: %s", filePath)
+			hotLoader.log("Reloading resource: %s", filePath)
 
 			local res = loadResource(filePath, true)
 			if res == nil then
-				log("Failed reloading resource: %s", filePath)
+				hotLoader.log("Failed reloading resource: %s", filePath)
 			else
 				resources[filePath] = res
-				log("Reloaded resource: %s", filePath)
+				hotLoader.log("Reloaded resource: %s", filePath)
 			end
 
 			resourceModifiedTimes[filePath] = modifiedTime
@@ -575,7 +567,7 @@ end
 -- preload( filePath, resource [, customLoader ] )
 function hotLoader.preload(filePath, res, loader)
 	if res == nil then
-		log("ERROR: The resource must not be nil. (Maybe you meant to use hotLoader.unload()?)")
+		hotLoader.log("ERROR: The resource must not be nil. (Maybe you meant to use hotLoader.unload()?)")
 		return
 	end
 
@@ -620,7 +612,7 @@ end
 -- prerequire( modulePath, module )
 function hotLoader.prerequire(modulePath, M)
 	if M == nil then
-		log("ERROR: The module must not be nil. (Maybe you meant to use hotLoader.unrequire()?)")
+		hotLoader.log("ERROR: The module must not be nil. (Maybe you meant to use hotLoader.unrequire()?)")
 		return
 	end
 
@@ -640,6 +632,18 @@ end
 -- allowExternalPaths( bool )
 function hotLoader.allowExternalPaths(state)
 	allowPathsOutsideLove = not not state
+end
+
+
+
+--==============================================================
+
+
+
+-- To silence hotLoader you can do hotLoader.log=function()end
+-- log( formatString, value... )
+function hotLoader.log(s, ...)
+	print(("[hotLoader|%s] "..s):format(os.date"%H:%M:%S", ...))
 end
 
 
