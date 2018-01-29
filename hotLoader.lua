@@ -143,6 +143,7 @@ local hotLoader = {
 
 
 local checkingInterval      = 1.00
+local allowPathsOutsideLove = false
 
 local loaders               = {}
 local customLoaders         = {}
@@ -158,7 +159,7 @@ local resourceModifiedTimes = {}
 
 local time                  = 0.00
 
-local allowPathsOutsideLove = false
+local lastCheckedIndex      = 0
 
 
 
@@ -403,48 +404,67 @@ end
 
 -- update( deltaTime )
 function hotLoader.update(dt)
+	local moduleCount = #modulePaths
+	local pathCount   = moduleCount+#resourcePaths
+	if pathCount == 0 then return end
+
 	time = time+dt
-	if time < checkingInterval then return end
-	time = 0
 
-	-- Check modules.
-	for _, modulePath in ipairs(modulePaths) do
+	local timeBetweenChecks = checkingInterval/pathCount
+	local pathsToCheck      = math.min(math.floor(time/timeBetweenChecks), pathCount)
+	local checkAllPaths     = (pathsToCheck == pathCount)
 
-		local modifiedTime = getModuleLastModifiedTime(modulePath)
-		if modifiedTime ~= moduleModifiedTimes[modulePath] then
-			hotLoader.log("Reloading module: %s", modulePath)
+	while pathsToCheck > 0 do
+		pathsToCheck = pathsToCheck-1
+		time = time-timeBetweenChecks
 
-			local M = loadModule(modulePath, true)
-			if M == nil then
-				hotLoader.log("Failed reloading module: %s", modulePath)
-			else
-				modules[modulePath] = M
-				hotLoader.log("Reloaded module: %s", modulePath)
+		lastCheckedIndex = math.min(lastCheckedIndex, pathCount)%pathCount+1
+
+		-- Check next module.
+		if lastCheckedIndex <= moduleCount then
+			local modulePath   = modulePaths[lastCheckedIndex]
+			local modifiedTime = getModuleLastModifiedTime(modulePath)
+
+			if modifiedTime ~= moduleModifiedTimes[modulePath] then
+				hotLoader.log("Reloading module: %s", modulePath)
+
+				local M = loadModule(modulePath, true)
+				if M == nil then
+					hotLoader.log("Failed reloading module: %s", modulePath)
+				else
+					modules[modulePath] = M
+					hotLoader.log("Reloaded module: %s", modulePath)
+				end
+
+				moduleModifiedTimes[modulePath] = modifiedTime
+
 			end
 
-			moduleModifiedTimes[modulePath] = modifiedTime
+		-- Check next resource.
+		else
+			local filePath     = resourcePaths[lastCheckedIndex-moduleCount]
+			local modifiedTime = getLastModifiedTime(filePath)
 
+			if modifiedTime ~= resourceModifiedTimes[filePath] then
+				hotLoader.log("Reloading resource: %s", filePath)
+
+				local res = loadResource(filePath, true)
+				if res == nil then
+					hotLoader.log("Failed reloading resource: %s", filePath)
+				else
+					resources[filePath] = res
+					hotLoader.log("Reloaded resource: %s", filePath)
+				end
+
+				resourceModifiedTimes[filePath] = modifiedTime
+
+			end
 		end
+
 	end
 
-	-- Check resources.
-	for _, filePath in ipairs(resourcePaths) do
-
-		local modifiedTime = getLastModifiedTime(filePath)
-		if modifiedTime ~= resourceModifiedTimes[filePath] then
-			hotLoader.log("Reloading resource: %s", filePath)
-
-			local res = loadResource(filePath, true)
-			if res == nil then
-				hotLoader.log("Failed reloading resource: %s", filePath)
-			else
-				resources[filePath] = res
-				hotLoader.log("Reloaded resource: %s", filePath)
-			end
-
-			resourceModifiedTimes[filePath] = modifiedTime
-
-		end
+	if checkAllPaths then
+		time = 0 -- Some protection against lag.
 	end
 
 end
