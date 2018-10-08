@@ -109,7 +109,7 @@
 
 
 local hotLoader = {
-	_VERSION     = "hotLoader v0.1.1",
+	_VERSION     = "hotLoader 1.0.0",
 	_DESCRIPTION = "File hot-loading module",
 	_URL         = "https://github.com/ReFreezed/LuaHotLoader",
 	_LICENSE     = [[
@@ -168,7 +168,7 @@ local lastCheckedIndex      = 0
 --==============================================================
 
 local fileExists
-local getCurrentTime
+local getCurrentClock
 local getFileContents, loadLuaFile
 local getLastModifiedTime, getModuleLastModifiedTime
 local getModuleFilePath
@@ -187,7 +187,7 @@ function fileExists(filePath)
 	end
 
 	local file = io.open(filePath, "r")
-	if not file then return false end
+	if not file then  return false  end
 
 	file:close()
 	return true
@@ -195,8 +195,9 @@ end
 
 
 
--- time = getCurrentTime( )
-getCurrentTime
+-- time = getCurrentClock( )
+-- Warning: os.clock() isn't guaranteed to be in seconds.
+getCurrentClock
 	= love and function()
 		return love.timer and love.timer.getTime() or os.clock()
 	end
@@ -211,7 +212,7 @@ function getFileContents(filePath)
 	end
 
 	local file, err = io.open(filePath, "rb")
-	if not file then return nil, err end
+	if not file then  return nil, err  end
 
 	local contents = file:read"*a"
 
@@ -229,32 +230,49 @@ loadLuaFile = love and love.filesystem.load or _G.loadfile
 local fakeModifiedTimes = {}
 local fileSizes         = {}
 
+local love_getFileInfo  = love and love.filesystem.getInfo
+
 getLastModifiedTime
 
 	= love and function(filePath)
 		if isLovePath(filePath) then
-			return love.filesystem.getLastModified(filePath)
+			if love_getFileInfo then
+				-- LÖVE 11.0+
+				local info = love_getFileInfo(filePath, "file")
+				local time = info and info.modtime
+				if time then  return time  end
+
+				return nil, "Could not determine file modification time."
+
+			else
+				-- LÖVE 0.10.2-
+				return love.filesystem.getLastModified(filePath)
+			end
 		end
+
+		-- Try to at least check the file size.
+		-- If the size changed then we generate a fake modification time.
+		-- @Incomplete: Do this if neither LÖVE nor LuaFileSystem is available.
 
 		local file, err = io.open(filePath, "r")
 		if not file then
 			fakeModifiedTimes[filePath] = nil
-			return nil, "Could not determine file modification date."
+			return nil, "Could not determine file modification time."
 		end
 
-		local fileSize = file:seek("end")
+		local fileSize = file:seek"end"
 		file:close()
 		if not fileSize then
 			fakeModifiedTimes[filePath] = nil
-			return nil, "Could not determine file modification date."
+			return nil, "Could not determine file modification time."
 		end
 
 		local time = fakeModifiedTimes[filePath]
-		if time and fileSize == fileSizes[filePath] then return time end
+		if time and fileSize == fileSizes[filePath] then  return time  end
 
 		fileSizes[filePath] = fileSize
 
-		time = os.time()--getCurrentTime()
+		time = os.time()--getCurrentClock()
 		fakeModifiedTimes[filePath] = time
 
 		return time
@@ -308,7 +326,7 @@ getRequirePath
 -- bool = isLovePath( filePath )
 isLovePath
 	= love and function(filePath)
-		if not allowPathsOutsideLove then return true end
+		if not allowPathsOutsideLove then  return true  end
 
 		return filePath:sub(1, 1) ~= "/" and filePath:find"^[%L%l]:[/\\]" == nil
 	end
@@ -334,8 +352,7 @@ function loadModule(modulePath, protected)
 		M = loadLuaFile(getModuleFilePath(modulePath))()
 	end
 
-	if M == nil then M = true end
-
+	if M == nil then  M = true  end
 	return M
 end
 
@@ -380,7 +397,7 @@ end
 -- index = indexOf( table, value )
 function indexOf(t, targetV)
 	for i, v in ipairs(t) do
-		if v == targetV then return i end
+		if v == targetV then  return i  end
 	end
 	return nil
 end
@@ -388,7 +405,7 @@ end
 -- index = removeItem( table, value )
 function removeItem(t, v)
 	local i = indexOf(t, v)
-	if not i then return nil end
+	if not i then  return nil  end
 
 	table.remove(t, i)
 	return i
@@ -406,7 +423,7 @@ end
 function hotLoader.update(dt)
 	local moduleCount = #modulePaths
 	local pathCount   = moduleCount+#resourcePaths
-	if pathCount == 0 then return end
+	if pathCount == 0 then  return  end
 
 	time = time+dt
 

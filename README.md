@@ -1,6 +1,12 @@
 # LuaHotLoader
 
-Hot-load any file, including Lua files. Works with *LuaFileSystem* or [*LÖVE*](https://love2d.org/).
+![version 1.0](https://img.shields.io/badge/version-1.0-green.svg)
+
+Hot-load any file, including Lua files. Works with *LuaFileSystem* or [*LÖVE*](https://love2d.org/) (including 11.0 and 0.10).
+
+- [Usage with LuaFileSystem](#usage-with-luafilesystem)
+- [Usage in LÖVE](#usage-in-lÖve)
+- [API](#api)
 
 
 
@@ -14,9 +20,9 @@ local duckImagePath = "duck.jpg"
 hotLoader.load(duckImagePath)
 
 -- Program loop.
-local lastTime = os.clock()
+local lastTime = os.time()
 while true do
-	local currentTime = os.clock()
+	local currentTime = os.time()
 
 	-- Allow hotLoader to reload module and resource files that have been updated.
 	hotLoader.update(currentTime-lastTime)
@@ -52,16 +58,14 @@ function love.load()
 	-- Note: hotLoader automatically adds common loaders in LÖVE, including
 	-- for .png files. You can call hotLoader.removeAllLoaders() to undo this.
 
-	-- Do the initial loading of resources.
+	-- Do the initial loading of resources (optional).
 	hotLoader.load(player.imagePath)
-
 end
 
 function love.update(dt)
 
 	-- Allow hotLoader to reload module and resource files that have been updated.
 	hotLoader.update(dt)
-
 end
 
 function love.draw()
@@ -75,32 +79,33 @@ function love.draw()
 	-- Draw player image.
 	local playerImage = hotLoader.load(player.imagePath)
 	love.graphics.draw(playerImage, player.x, player.y)
-
 end
 ```
 
 
 
-# API
+## API
 
-Check the source code for more info.
+Check the [source code](hotLoader.lua) for more info.
 
-- `hotLoader.allowExternalPaths()`
-- `hotLoader.disableDefaultLoader()`
-- `hotLoader.getCheckingInterval()`
-- `hotLoader.getCustomLoader()`
-- `hotLoader.getDefaultLoader()`
-- `hotLoader.getLoader()`
-- `hotLoader.load()`
-- `hotLoader.preload()`
-- `hotLoader.prerequire()`
-- `hotLoader.removeAllCustomLoaders()`
-- `hotLoader.removeAllLoaders()`
-- `hotLoader.require()`
-- `hotLoader.setCheckingInterval()`
-- `hotLoader.setCustomLoader()`
-- `hotLoader.setDefaultLoader()`
-- `hotLoader.setLoader()`
-- `hotLoader.unload()`
-- `hotLoader.unrequire()`
-- `hotLoader.update()`
+```lua
+hotLoader.allowExternalPaths()
+hotLoader.disableDefaultLoader()
+hotLoader.getCheckingInterval()
+hotLoader.getCustomLoader()
+hotLoader.getDefaultLoader()
+hotLoader.getLoader()
+hotLoader.load()
+hotLoader.preload()
+hotLoader.prerequire()
+hotLoader.removeAllCustomLoaders()
+hotLoader.removeAllLoaders()
+hotLoader.require()
+hotLoader.setCheckingInterval()
+hotLoader.setCustomLoader()
+hotLoader.setDefaultLoader()
+hotLoader.setLoader()
+hotLoader.unload()
+hotLoader.unrequire()
+hotLoader.update()
+```
