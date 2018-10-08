@@ -163,6 +163,10 @@ local lastCheckedIndex      = 0
 
 
 
+local love_getFileInfo = love and love.filesystem.getInfo
+
+
+
 --==============================================================
 --= Local Functions ============================================
 --==============================================================
@@ -180,10 +184,14 @@ local loadResource
 
 
 
--- fileExists( filePath )
+-- bool = fileExists( filePath )
 function fileExists(filePath)
 	if isLovePath(filePath) then
-		return love.filesystem.exists(filePath)
+		if love_getFileInfo then
+			return (love_getFileInfo(filePath, "file") ~= nil)
+		else
+			return love.filesystem.exists(filePath)
+		end
 	end
 
 	local file = io.open(filePath, "r")
@@ -229,8 +237,6 @@ loadLuaFile = love and love.filesystem.load or _G.loadfile
 -- time, errorMessage = getLastModifiedTime( filePath )
 local fakeModifiedTimes = {}
 local fileSizes         = {}
-
-local love_getFileInfo  = love and love.filesystem.getInfo
 
 getLastModifiedTime
 
