@@ -109,7 +109,7 @@
 
 
 local hotLoader = {
-	_VERSION     = "hotLoader 1.0.0",
+	_VERSION     = "hotLoader 1.0.1",
 	_DESCRIPTION = "File hot-loading module",
 	_URL         = "https://github.com/ReFreezed/LuaHotLoader",
 	_LICENSE     = [[
