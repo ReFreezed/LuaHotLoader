@@ -1,6 +1,6 @@
 # LuaHotLoader
 
-![version 1.0.1](https://img.shields.io/badge/version-1.0.1-green.svg)
+![version 1.1](https://img.shields.io/badge/version-1.1-green.svg)
 
 Hot-load any file, including Lua files. Works with *LuaFileSystem* or [*LÖVE*](https://love2d.org/) (including 11.0 and 0.10).
 
@@ -95,6 +95,8 @@ hotLoader.getCheckingInterval()
 hotLoader.getCustomLoader()
 hotLoader.getDefaultLoader()
 hotLoader.getLoader()
+hotLoader.hasLoaded()
+hotLoader.hasRequired()
 hotLoader.load()
 hotLoader.preload()
 hotLoader.prerequire()

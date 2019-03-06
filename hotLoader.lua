@@ -99,8 +99,8 @@
 	getCustomLoader,  setCustomLoader,  removeAllCustomLoaders
 	getDefaultLoader, setDefaultLoader, disableDefaultLoader
 
-	load,    unload,    preload
-	require, unrequire, prerequire
+	load,    unload,    preload,    hasLoaded
+	require, unrequire, prerequire, hasRequired
 
 	update
 
@@ -109,7 +109,7 @@
 
 
 local hotLoader = {
-	_VERSION     = "hotLoader 1.0.1",
+	_VERSION     = "hotLoader 1.1.0",
 	_DESCRIPTION = "File hot-loading module",
 	_URL         = "https://github.com/ReFreezed/LuaHotLoader",
 	_LICENSE     = [[
@@ -626,6 +626,11 @@ function hotLoader.preload(filePath, res, loader)
 	resourceModifiedTimes[filePath] = getLastModifiedTime(filePath)
 end
 
+-- bool = hasLoaded( filePath )
+function hotLoader.hasLoaded(filePath)
+	return resources[filePath] ~= nil
+end
+
 
 
 -- Requires a module just like the standard Lua require() function.
@@ -665,6 +670,11 @@ function hotLoader.prerequire(modulePath, M)
 
 	modules[modulePath] = M
 	moduleModifiedTimes[modulePath] = getModuleLastModifiedTime(modulePath)
+end
+
+-- bool = hasRequired( modulePath )
+function hotLoader.hasRequired(modulePath)
+	return modules[modulePath] ~= nil
 end
 
 
