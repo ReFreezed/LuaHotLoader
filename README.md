@@ -1,6 +1,6 @@
 # LuaHotLoader
 
-![version 1.1](https://img.shields.io/badge/version-1.1-green.svg)
+![version 1.2](https://img.shields.io/badge/version-1.2-green.svg)
 
 Hot-load any file, including Lua files. Works with *LuaFileSystem* or [*LÖVE*](https://love2d.org/) (including 11.0 and 0.10).
 
@@ -16,7 +16,7 @@ Hot-load any file, including Lua files. Works with *LuaFileSystem* or [*LÖVE*](
 local hotLoader     = require("hotLoader")
 local duckImagePath = "duck.jpg"
 
--- Initial loading of resources.
+-- Initial loading of resources (optional).
 hotLoader.load(duckImagePath)
 
 -- Program loop.
@@ -95,6 +95,7 @@ hotLoader.getCheckingInterval()
 hotLoader.getCustomLoader()
 hotLoader.getDefaultLoader()
 hotLoader.getLoader()
+hotLoader.getLogformat()
 hotLoader.hasLoaded()
 hotLoader.hasRequired()
 hotLoader.load()
@@ -103,10 +104,12 @@ hotLoader.prerequire()
 hotLoader.removeAllCustomLoaders()
 hotLoader.removeAllLoaders()
 hotLoader.require()
+hotLoader.resetCheckingState()
 hotLoader.setCheckingInterval()
 hotLoader.setCustomLoader()
 hotLoader.setDefaultLoader()
 hotLoader.setLoader()
+hotLoader.setLogformat()
 hotLoader.unload()
 hotLoader.unrequire()
 hotLoader.update()

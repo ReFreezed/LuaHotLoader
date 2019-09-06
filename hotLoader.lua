@@ -16,7 +16,7 @@
 	local hotLoader     = require("hotLoader")
 	local duckImagePath = "duck.jpg"
 
-	-- Initial loading of resources.
+	-- Initial loading of resources (optional).
 	hotLoader.load(duckImagePath)
 
 	-- Program loop.
@@ -58,16 +58,14 @@
 		-- Note: hotLoader automatically adds common loaders in LÖVE, including
 		-- for .png files. You can call hotLoader.removeAllLoaders() to undo this.
 
-		-- Do the initial loading of resources.
+		-- Do the initial loading of resources (optional).
 		hotLoader.load(player.imagePath)
-
 	end
 
 	function love.update(dt)
 
 		-- Allow hotLoader to reload module and resource files that have been updated.
 		hotLoader.update(dt)
-
 	end
 
 	function love.draw()
@@ -81,7 +79,6 @@
 		-- Draw player image.
 		local playerImage = hotLoader.load(player.imagePath)
 		love.graphics.draw(playerImage, player.x, player.y)
-
 	end
 
 
@@ -95,6 +92,9 @@
 	getCheckingInterval
 	setCheckingInterval
 
+	getLogFormat
+	setLogFormat
+
 	getLoader,        setLoader,        removeAllLoaders
 	getCustomLoader,  setCustomLoader,  removeAllCustomLoaders
 	getDefaultLoader, setDefaultLoader, disableDefaultLoader
@@ -103,19 +103,20 @@
 	require, unrequire, prerequire, hasRequired
 
 	update
+	resetCheckingState
 
 --============================================================]]
 
 
 
 local hotLoader = {
-	_VERSION     = "hotLoader 1.1.0",
+	_VERSION     = "hotLoader 1.2.0",
 	_DESCRIPTION = "File hot-loading module",
 	_URL         = "https://github.com/ReFreezed/LuaHotLoader",
 	_LICENSE     = [[
 		MIT License
 
-		Copyright © 2018 Marcus 'ReFreezed' Thunström
+		Copyright © 2018-2019 Marcus 'ReFreezed' Thunström
 
 		Permission is hereby granted, free of charge, to any person obtaining a copy
 		of this software and associated documentation files (the "Software"), to deal
@@ -145,6 +146,11 @@ local hotLoader = {
 local checkingInterval      = 1.00
 local allowPathsOutsideLove = false
 
+local logFormat             = "[hotLoader|%t] %m"
+local logFormatHasD         = false
+local logFormatHasM         = true
+local logFormatHasT         = true
+
 local loaders               = {}
 local customLoaders         = {}
 local defaultLoader         = nil
@@ -158,8 +164,8 @@ local resourcePaths         = {}
 local resourceModifiedTimes = {}
 
 local time                  = 0.00
-
 local lastCheckedIndex      = 0
+local stateHasBeenReset     = false
 
 
 
@@ -437,7 +443,9 @@ function hotLoader.update(dt)
 	local pathsToCheck      = math.min(math.floor(time/timeBetweenChecks), pathCount)
 	local checkAllPaths     = (pathsToCheck == pathCount)
 
-	while pathsToCheck > 0 do
+	stateHasBeenReset = false
+
+	while pathsToCheck > 0 and not stateHasBeenReset do
 		pathsToCheck = pathsToCheck-1
 		time = time-timeBetweenChecks
 
@@ -689,6 +697,48 @@ end
 
 
 
+-- Make hotLoader start over and check the first monitored file next time hotLoader.update() is called.
+-- The current update is aborted if this is called from within a loader.
+-- resetCheckingState( )
+function hotLoader.resetCheckingState()
+	time              = 0
+	lastCheckedIndex  = 0
+	stateHasBeenReset = true
+end
+
+
+
+function hotLoader.getLogFormat(s)
+	return logFormat
+end
+
+-- Set message format used by hotLoader.log().
+-- Use the percent sign to indicate where the values go:
+--     %d = date (YYYY-MM-DD)
+--     %m = message
+--     %t = time (HH:MM:SS)
+--     %% = a literal percent sign
+-- Default format is "[hotLoader|%t] %m"
+function hotLoader.setLogFormat(s)
+	local hasD = false
+	local hasM = false
+	local hasT = false
+
+	for c in s:gmatch"%%(.)" do
+		if     c == "d" then  hasD = true
+		elseif c == "m" then  hasM = true
+		elseif c == "t" then  hasT = true
+		elseif c ~= "%" then  error("Invalid option '%"..c.."'. (Valid options are '%d', '%m' and '%t')", 2)  end
+	end
+
+	logFormat     = s
+	logFormatHasD = hasD
+	logFormatHasM = hasM
+	logFormatHasT = hasT
+end
+
+
+
 --==============================================================
 
 
@@ -696,7 +746,21 @@ end
 -- To silence hotLoader you can do hotLoader.log=function()end
 -- log( formatString, value... )
 function hotLoader.log(s, ...)
-	print(("[hotLoader|%s] "..s):format(os.date"%H:%M:%S", ...))
+	s             = s:format(...)
+	local dateStr = logFormatHasD and os.date"%Y-%m-%d"
+	local timeStr = logFormatHasT and os.date"%H:%M:%S"
+
+	print((logFormat:gsub("(%%(.))", function(match, c)
+		if c == "m" then
+			return s
+		elseif c == "d" then
+			return dateStr
+		elseif c == "t" then
+			return timeStr
+		else
+			return match
+		end
+	end)))
 end
 
 
@@ -706,15 +770,16 @@ end
 --==============================================================
 
 -- Setup default loaders in LÖVE.
-if love then
-
+-- (Call hotLoader.removeAllLoaders() the first thing you do to undo this.)
+if love and love.graphics then
 	hotLoader.setLoader(
 		"jpg","jpeg",
 		"png",
 		"tga",
 		love.graphics.newImage
 	)
-
+end
+if love and love.audio then
 	hotLoader.setLoader(
 		"wav",
 		"ogg","oga","ogv",
@@ -731,7 +796,6 @@ if love then
 			return love.audio.newSource(filePath, "stream")
 		end
 	)
-
 end
 
 return hotLoader
