@@ -21,6 +21,7 @@
 
 	-- Program loop.
 	local lastTime = os.clock()
+
 	while true do
 		local currentTime = os.clock()
 
@@ -110,13 +111,13 @@
 
 
 local hotLoader = {
-	_VERSION     = "hotLoader 1.2.0",
+	_VERSION     = "LuaHotLoader 1.2.0",
 	_DESCRIPTION = "File hot-loading module",
 	_URL         = "https://github.com/ReFreezed/LuaHotLoader",
 	_LICENSE     = [[
 		MIT License
 
-		Copyright © 2018-2019 Marcus 'ReFreezed' Thunström
+		Copyright © 2018-2022 Marcus 'ReFreezed' Thunström
 
 		Permission is hereby granted, free of charge, to any person obtaining a copy
 		of this software and associated documentation files (the "Software"), to deal
@@ -177,21 +178,23 @@ local love_getFileInfo = love and love.filesystem.getInfo
 --= Local Functions ============================================
 --==============================================================
 
-local fileExists
-local getCurrentClock
-local getFileContents, loadLuaFile
-local getLastModifiedTime, getModuleLastModifiedTime
-local getModuleFilePath
-local getRequirePath
-local indexOf, removeItem
+
+
+-- bool = isLovePath( filePath )
 local isLovePath
-local loadModule
-local loadResource
+	= love and function(filePath)
+		if not allowPathsOutsideLove then  return true  end
+
+		return filePath:sub(1, 1) ~= "/" and filePath:find"^[%L%l]:[/\\]" == nil
+	end
+	or function()
+		return false
+	end
 
 
 
 -- bool = fileExists( filePath )
-function fileExists(filePath)
+local function fileExists(filePath)
 	if isLovePath(filePath) then
 		if love_getFileInfo then
 			return (love_getFileInfo(filePath, "file") ~= nil)
@@ -211,7 +214,7 @@ end
 
 -- time = getCurrentClock( )
 -- Warning: os.clock() isn't guaranteed to be in seconds.
-getCurrentClock
+local getCurrentClock
 	= love and function()
 		return love.timer and love.timer.getTime() or os.clock()
 	end
@@ -220,7 +223,7 @@ getCurrentClock
 
 
 -- contents, errorMessage = getFileContents( filePath )
-function getFileContents(filePath)
+local function getFileContents(filePath)
 	if isLovePath(filePath) then
 		return love.filesystem.read(filePath)
 	end
@@ -229,14 +232,48 @@ function getFileContents(filePath)
 	if not file then  return nil, err  end
 
 	local contents = file:read"*a"
-
 	file:close()
 
 	return contents
 end
 
 -- chunk, errorMessage = loadLuaFile( filePath )
-loadLuaFile = love and love.filesystem.load or _G.loadfile
+local loadLuaFile = love and love.filesystem.load or _G.loadfile
+
+
+
+-- filePaths = getRequirePath( )
+-- filePaths = "filePath1;..."
+local getRequirePath
+	= love and love.filesystem.getRequirePath
+	or function()
+		return package.path
+	end
+
+
+
+-- filePath = getModuleFilePath( modulePath )
+local getModuleFilePath
+do
+	local moduleFilePaths = {}
+
+	--[[local]] function getModuleFilePath(modulePath)
+		local filePath = moduleFilePaths[modulePath]
+		if filePath then  return filePath  end
+
+		local filePathsStr = getRequirePath():gsub("?", (modulePath:gsub("%.", "/")))
+
+		for currentFilePath in filePathsStr:gmatch"[^;]+" do
+			if fileExists(currentFilePath) then
+				filePath = currentFilePath
+				break
+			end
+		end
+
+		moduleFilePaths[modulePath] = filePath or error("[hotLoader] Cannot find module on path '"..modulePath.."'.")
+		return filePath
+	end
+end
 
 
 
@@ -244,7 +281,7 @@ loadLuaFile = love and love.filesystem.load or _G.loadfile
 local fakeModifiedTimes = {}
 local fileSizes         = {}
 
-getLastModifiedTime
+local getLastModifiedTime
 
 	= love and function(filePath)
 		if isLovePath(filePath) then
@@ -295,61 +332,14 @@ getLastModifiedTime
 	end
 
 -- time, errorMessage = getModuleLastModifiedTime( modulePath )
-function getModuleLastModifiedTime(modulePath)
+local function getModuleLastModifiedTime(modulePath)
 	return getLastModifiedTime(getModuleFilePath(modulePath))
 end
 
 
 
--- filePath = getModuleFilePath( modulePath )
-do
-	local filePaths = {}
-
-	function getModuleFilePath(modulePath)
-		local filePath = filePaths[modulePath]
-		if not filePath then
-
-			local filePathsStr = getRequirePath():gsub("?", (modulePath:gsub("%.", "/")))
-			for currentFilePath in filePathsStr:gmatch"[^;]+" do
-				if fileExists(currentFilePath) then
-					filePath = currentFilePath
-					break
-				end
-			end
-
-			filePaths[modulePath] = filePath or error("[hotLoader] Cannot find module on path '"..modulePath.."'.")
-		end
-		return filePath
-	end
-
-end
-
-
-
--- filePaths:string = getRequirePath( )
-getRequirePath
-	= love and love.filesystem.getRequirePath
-	or function()
-		return package.path
-	end
-
-
-
--- bool = isLovePath( filePath )
-isLovePath
-	= love and function(filePath)
-		if not allowPathsOutsideLove then  return true  end
-
-		return filePath:sub(1, 1) ~= "/" and filePath:find"^[%L%l]:[/\\]" == nil
-	end
-	or function()
-		return false
-	end
-
-
-
 -- module = loadModule( modulePath, protected )
-function loadModule(modulePath, protected)
+local function loadModule(modulePath, protected)
 	local M
 
 	if protected then
@@ -371,7 +361,7 @@ end
 
 
 -- resource, errorMessage = loadResource( filePath, protected )
-function loadResource(filePath, protected)
+local function loadResource(filePath, protected)
 	local loader
 		=  customLoaders[filePath]
 		or loaders[filePath:match"%.([^.]+)$"]
@@ -407,7 +397,7 @@ end
 
 
 -- index = indexOf( table, value )
-function indexOf(t, targetV)
+local function indexOf(t, targetV)
 	for i, v in ipairs(t) do
 		if v == targetV then  return i  end
 	end
@@ -415,7 +405,7 @@ function indexOf(t, targetV)
 end
 
 -- index = removeItem( table, value )
-function removeItem(t, v)
+local function removeItem(t, v)
 	local i = indexOf(t, v)
 	if not i then  return nil  end
 
