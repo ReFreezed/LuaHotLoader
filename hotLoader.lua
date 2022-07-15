@@ -181,9 +181,9 @@ local love_getFileInfo = love and love.filesystem.getInfo
 -- bool = isLovePath( filePath )
 local isLovePath
 	= love and function(filePath)
-		if not allowPathsOutsideLove then  return true  end
+		if not allowPathsOutsideLove then  return true  end -- This will result in LÖVE functions being used for external paths resulting in errors.
 
-		return filePath:sub(1, 1) ~= "/" and filePath:find"^[%L%l]:[/\\]" == nil
+		return filePath:sub(1, 1) ~= "/" and filePath:find"^%a:" == nil
 	end
 	or function()
 		return false
@@ -433,6 +433,12 @@ end
 
 
 
+local function noDefaultLoader(filePath)
+	error("[HotLoader] No loader is available for '"..filePath.."' (and the default loader is disabled).")
+end
+
+
+
 --==============================================================
 --= Public Functions ===========================================
 --==============================================================
@@ -456,7 +462,7 @@ function hotLoader.update(dt)
 	while pathsToCheck > 0 and not stateHasBeenReset do
 		pathsToCheck     = pathsToCheck - 1
 		time             = time - timeBetweenChecks
-		lastCheckedIndex = math.min(lastCheckedIndex, pathCount)%pathCount + 1
+		lastCheckedIndex = math.min(lastCheckedIndex, pathCount) % pathCount + 1
 
 		-- Check next module.
 		if lastCheckedIndex <= moduleCount then
@@ -479,7 +485,7 @@ function hotLoader.update(dt)
 
 		-- Check next resource.
 		else
-			local filePath     = resourcePaths[lastCheckedIndex-moduleCount]
+			local filePath     = resourcePaths[lastCheckedIndex - moduleCount]
 			local modifiedTime = getLastModifiedTime(filePath)
 
 			if modifiedTime ~= resourceModifiedTimes[filePath] then
@@ -522,14 +528,25 @@ function hotLoader.getLoader(fileExt)
 	return loaders[fileExt]
 end
 
--- Sets a loader for a file extension.
--- setLoader( fileExtension, [ fileExtension2..., ] loader )
+-- Set or remove a loader for a file extension.
+-- setLoader( fileExtension, [ fileExtension2..., ] loader|nil )
 -- loader: function( fileContents, filePath )
 function hotLoader.setLoader(...)
-	local argCount = select("#", ...)
-	local loader = select(argCount, ...)
+	local argCount = math.max(select("#", ...), 1)
+	local loader   = select(argCount, ...)
+
+	if not (type(loader) == "function" or loader == nil) then
+		error("Bad argument #"..argCount.." (loader) to 'setLoader'. (Expected function, got "..type(loader)..")", 2)
+	elseif argCount == 1 then
+		error("No file extension specified.", 2)
+	end
+
 	for i = 1, argCount-1 do
-		loaders[select(i, ...)] = loader
+		local fileExt = select(i, ...)
+		if type(fileExt) ~= "string" then
+			error("Bad argument #"..i.." (fileExtension) to 'setLoader'. (Expected string, got "..type(fileExt)..")", 2)
+		end
+		loaders[fileExt] = loader
 	end
 end
 
@@ -543,14 +560,25 @@ function hotLoader.getCustomLoader(filePath)
 	return customLoaders[filePath]
 end
 
--- Sets a loader for a specific file path.
--- setCustomLoader( filePath, [ filePath2..., ] loader )
+-- Set or remove a loader for a specific file path.
+-- setCustomLoader( filePath, [ filePath2..., ] loader|nil )
 -- loader: function( fileContents, filePath )
 function hotLoader.setCustomLoader(...)
-	local argCount = select("#", ...)
-	local loader = select(argCount, ...)
+	local argCount = math.max(select("#", ...), 1)
+	local loader   = select(argCount, ...)
+
+	if not (type(loader) == "function" or loader == nil) then
+		error("Bad argument #"..argCount.." (loader) to 'setCustomLoader'. (Expected function, got "..type(loader)..")", 2)
+	elseif argCount == 1 then
+		error("No file path specified.", 2)
+	end
+
 	for i = 1, argCount-1 do
-		customLoaders[select(i, ...)] = loader
+		local filePath = select(i, ...)
+		if type(filePath) ~= "string" then
+			error("Bad argument #"..i.." (filePath) to 'setCustomLoader'. (Expected string, got "..type(filePath)..")", 2)
+		end
+		customLoaders[filePath] = loader
 	end
 end
 
@@ -567,14 +595,15 @@ end
 -- setDefaultLoader( loader )
 -- loader: Specify nil to restore original default loader (which loads the file as a plain string).
 function hotLoader.setDefaultLoader(loader)
+	if not (type(loader) == "function" or loader == nil) then
+		error("Bad argument #1 (loader) to 'setDefaultLoader'. (Expected function, got "..type(loader)..")", 2)
+	end
 	defaultLoader = loader
 end
 
 -- disableDefaultLoader( )
 function hotLoader.disableDefaultLoader()
-	defaultLoader = function(filePath)
-		error("[HotLoader] No loader is available for '"..filePath.."' (and the default loader is disabled).")
-	end
+	defaultLoader = noDefaultLoader
 end
 
 
