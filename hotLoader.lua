@@ -1,11 +1,11 @@
 --[[============================================================
 --=
---=  File Hot-Loading Module
---=  - Written by Marcus 'ReFreezed' Thunström
---=  - MIT License
+--=  LuaHotLoader v1.2-dev - file hot-loading library
+--=  by Marcus 'ReFreezed' Thunström
 --=
---=  Dependencies:
---=  - either LuaFileSystem or LÖVE 0.10+
+--=  License: MIT (see below)
+--=
+--=  Dependencies: Either LuaFileSystem or LÖVE 0.10+
 --=
 --==============================================================
 
@@ -52,7 +52,6 @@
 	}
 
 	function love.load()
-
 		-- Tell hotLoader to load .png files using love.graphics.newImage().
 		hotLoader.setLoader("png", love.graphics.newImage)
 
@@ -64,13 +63,11 @@
 	end
 
 	function love.update(dt)
-
 		-- Allow hotLoader to reload module and resource files that have been updated.
 		hotLoader.update(dt)
 	end
 
 	function love.draw()
-
 		-- Show if debug mode is enabled.
 		local settings = hotLoader.require("gameSettings")
 		if settings.enableDebug then
@@ -89,6 +86,7 @@
 	API:
 
 	allowExternalPaths
+	isAllowingExternalPaths
 
 	getCheckingInterval
 	setCheckingInterval
@@ -111,8 +109,8 @@
 
 
 local hotLoader = {
-	_VERSION     = "LuaHotLoader 1.2.0",
-	_DESCRIPTION = "File hot-loading module",
+	_VERSION     = "LuaHotLoader 1.2.0-dev",
+	_DESCRIPTION = "File hot-loading library",
 	_URL         = "https://github.com/ReFreezed/LuaHotLoader",
 	_LICENSE     = [[
 		MIT License
@@ -147,22 +145,22 @@ local hotLoader = {
 local checkingInterval      = 1.00
 local allowPathsOutsideLove = false
 
-local logFormat             = "[hotLoader|%t] %m"
+local logFormat             = "[HotLoader|%t] %m"
 local logFormatHasD         = false
 local logFormatHasM         = true
 local logFormatHasT         = true
 
-local loaders               = {}
-local customLoaders         = {}
+local loaders               = {--[[ [fileExtension1]=loader, ... ]]}
+local customLoaders         = {--[[ [filePath1]=loader, ... ]]}
 local defaultLoader         = nil
 
-local modules               = {}
-local modulePaths           = {}
-local moduleModifiedTimes   = {}
+local modules               = {--[[ [moduleName1]=module, ... ]]}
+local moduleNames           = {--[[ moduleName1, ... ]]}
+local moduleModifiedTimes   = {--[[ [moduleName1]=modifiedTime, ... ]]}
 
-local resources             = {}
-local resourcePaths         = {}
-local resourceModifiedTimes = {}
+local resources             = {--[[ [filePath1]=resource, ... ]]}
+local resourcePaths         = {--[[ filePath1, ... ]]}
+local resourceModifiedTimes = {--[[ [filePath1]=modifiedTime, ... ]]}
 
 local time                  = 0.00
 local lastCheckedIndex      = 0
@@ -252,25 +250,42 @@ local getRequirePath
 
 
 
--- filePath = getModuleFilePath( modulePath )
+local function escapePattern(s)
+	return (s:gsub("[-+*^?$.%%()[%]]", "%%%0"))
+end
+
+
+
+-- filePath = getModuleFilePath( moduleName )
 local getModuleFilePath
 do
-	local moduleFilePaths = {}
+	local dirSep, tempSep, subPoint = package.config:match"^(%C)\n(%C)\n(%C)\n" -- Hopefully each line has a single character!
+	dirSep   = dirSep   or "/"
+	tempSep  = tempSep  or ";"
+	subPoint = subPoint or "?"
 
-	--[[local]] function getModuleFilePath(modulePath)
-		local filePath = moduleFilePaths[modulePath]
+	local TEMPLATE_PATTERN           = "[^" .. escapePattern(tempSep) .. "]+"
+	local SUBSTITUTION_POINT_PATTERN = escapePattern(subPoint)
+
+	local moduleFilePaths         = {--[[ [moduleName1]=filePath, ... ]]}
+	local moduleNameModifications = {["."]=dirSep:gsub("%%", "%%%%"), ["%"]="%%%%"}
+
+	--[[local]] function getModuleFilePath(moduleName)
+		local filePath = moduleFilePaths[moduleName]
 		if filePath then  return filePath  end
 
-		local filePathsStr = getRequirePath():gsub("?", (modulePath:gsub("%.", "/")))
+		local moduleNameModified = moduleName:gsub("[.%%]", moduleNameModifications) -- Change e.g. "foo.bar%1" into "foo/bar%%1".
 
-		for currentFilePath in filePathsStr:gmatch"[^;]+" do
+		for template in getRequirePath():gmatch(TEMPLATE_PATTERN) do
+			local currentFilePath = template:gsub(SUBSTITUTION_POINT_PATTERN, moduleNameModified)
+
 			if fileExists(currentFilePath) then
 				filePath = currentFilePath
 				break
 			end
 		end
 
-		moduleFilePaths[modulePath] = filePath or error("[hotLoader] Cannot find module on path '"..modulePath.."'.")
+		moduleFilePaths[moduleName] = filePath or error("[HotLoader] Cannot find module '"..moduleName.."'.")
 		return filePath
 	end
 end
@@ -331,36 +346,38 @@ local getLastModifiedTime
 		return require"lfs".attributes(filePath, "modification")
 	end
 
--- time, errorMessage = getModuleLastModifiedTime( modulePath )
-local function getModuleLastModifiedTime(modulePath)
-	return getLastModifiedTime(getModuleFilePath(modulePath))
+-- time, errorMessage = getModuleLastModifiedTime( moduleName )
+local function getModuleLastModifiedTime(moduleName)
+	return getLastModifiedTime(getModuleFilePath(moduleName))
 end
 
 
 
--- module = loadModule( modulePath, protected )
-local function loadModule(modulePath, protected)
-	local M
+-- module = loadModule( moduleName, protected )
+-- protected: If true then nil is returned on error, otherwise errors are raised.
+local function loadModule(moduleName, protected)
+	local module
 
 	if protected then
-		local ok, chunkOrErr = pcall(loadLuaFile, getModuleFilePath(modulePath))
+		local ok, chunkOrErr = pcall(loadLuaFile, getModuleFilePath(moduleName))
 		if not ok then
 			hotLoader.log("ERROR: %s", chunkOrErr)
 			return nil
 		end
-		M = chunkOrErr()
+		module = chunkOrErr()
 
 	else
-		M = loadLuaFile(getModuleFilePath(modulePath))()
+		module = loadLuaFile(getModuleFilePath(moduleName))()
 	end
 
-	if M == nil then  M = true  end
-	return M
+	if module == nil then  module = true  end
+	return module
 end
 
 
 
 -- resource, errorMessage = loadResource( filePath, protected )
+-- protected: If true then errors are returned, otherwise errors are raised.
 local function loadResource(filePath, protected)
 	local loader
 		=  customLoaders[filePath]
@@ -369,9 +386,10 @@ local function loadResource(filePath, protected)
 		or getFileContents
 
 	local res
-	if protected then
 
+	if protected then
 		local ok, resOrErr = pcall(loader, filePath)
+
 		if not ok then
 			hotLoader.log("ERROR: %s", resOrErr)
 			return nil, resOrErr
@@ -387,7 +405,7 @@ local function loadResource(filePath, protected)
 	else
 		res = loader(filePath)
 		if not res then
-			error("[hotLoader] Loader returned nothing for '"..filePath.."'.")
+			error("[HotLoader] Loader returned nothing for '"..filePath.."'.")
 		end
 	end
 
@@ -423,42 +441,40 @@ end
 
 -- update( deltaTime )
 function hotLoader.update(dt)
-	local moduleCount = #modulePaths
-	local pathCount   = moduleCount+#resourcePaths
+	local moduleCount = #moduleNames
+	local pathCount   = moduleCount + #resourcePaths
 	if pathCount == 0 then  return  end
 
-	time = time+dt
+	time = time + dt
 
-	local timeBetweenChecks = checkingInterval/pathCount
+	local timeBetweenChecks = checkingInterval / pathCount
 	local pathsToCheck      = math.min(math.floor(time/timeBetweenChecks), pathCount)
-	local checkAllPaths     = (pathsToCheck == pathCount)
+	local checkAllPaths     = pathsToCheck == pathCount
 
 	stateHasBeenReset = false
 
 	while pathsToCheck > 0 and not stateHasBeenReset do
-		pathsToCheck = pathsToCheck-1
-		time = time-timeBetweenChecks
-
-		lastCheckedIndex = math.min(lastCheckedIndex, pathCount)%pathCount+1
+		pathsToCheck     = pathsToCheck - 1
+		time             = time - timeBetweenChecks
+		lastCheckedIndex = math.min(lastCheckedIndex, pathCount)%pathCount + 1
 
 		-- Check next module.
 		if lastCheckedIndex <= moduleCount then
-			local modulePath   = modulePaths[lastCheckedIndex]
-			local modifiedTime = getModuleLastModifiedTime(modulePath)
+			local moduleName   = moduleNames[lastCheckedIndex]
+			local modifiedTime = getModuleLastModifiedTime(moduleName)
 
-			if modifiedTime ~= moduleModifiedTimes[modulePath] then
-				hotLoader.log("Reloading module: %s", modulePath)
+			if modifiedTime ~= moduleModifiedTimes[moduleName] then
+				hotLoader.log("Reloading module: %s", moduleName)
 
-				local M = loadModule(modulePath, true)
-				if M == nil then
-					hotLoader.log("Failed reloading module: %s", modulePath)
+				local module = loadModule(moduleName, true)
+				if module == nil then
+					hotLoader.log("Failed reloading module: %s", moduleName)
 				else
-					modules[modulePath] = M
-					hotLoader.log("Reloaded module: %s", modulePath)
+					modules[moduleName] = module
+					hotLoader.log("Reloaded module: %s", moduleName)
 				end
 
-				moduleModifiedTimes[modulePath] = modifiedTime
-
+				moduleModifiedTimes[moduleName] = modifiedTime
 			end
 
 		-- Check next resource.
@@ -478,16 +494,13 @@ function hotLoader.update(dt)
 				end
 
 				resourceModifiedTimes[filePath] = modifiedTime
-
 			end
 		end
-
 	end
 
 	if checkAllPaths then
 		time = 0 -- Some protection against lag.
 	end
-
 end
 
 
@@ -560,13 +573,14 @@ end
 -- disableDefaultLoader( )
 function hotLoader.disableDefaultLoader()
 	defaultLoader = function(filePath)
-		error("[hotLoader] No loader is available for '"..filePath.."' (and the default loader is disabled).")
+		error("[HotLoader] No loader is available for '"..filePath.."' (and the default loader is disabled).")
 	end
 end
 
 
 
 -- resource, errorMessage = load( filePath [, protectedLoad=false ] [, customLoader ] )
+-- protected: If true then errors are returned, otherwise errors are raised.
 -- customLoader: If set, replaces the previous custom loader for filePath.
 function hotLoader.load(filePath, protected, loader)
 	if type(protected) == "function" then
@@ -578,6 +592,7 @@ function hotLoader.load(filePath, protected, loader)
 	end
 
 	local res = resources[filePath]
+
 	if res == nil then
 		local err
 		res, err = loadResource(filePath, (protected or false))
@@ -589,7 +604,7 @@ function hotLoader.load(filePath, protected, loader)
 			return nil, err
 		end
 
-		resources[filePath] = res
+		resources            [filePath] = res
 		resourceModifiedTimes[filePath] = getLastModifiedTime(filePath)
 
 		table.insert(resourcePaths, filePath)
@@ -620,7 +635,7 @@ function hotLoader.preload(filePath, res, loader)
 		table.insert(resourcePaths, filePath)
 	end
 
-	resources[filePath] = res
+	resources            [filePath] = res
 	resourceModifiedTimes[filePath] = getLastModifiedTime(filePath)
 end
 
@@ -632,57 +647,63 @@ end
 
 
 -- Requires a module just like the standard Lua require() function.
--- module = require( modulePath )
-function hotLoader.require(modulePath)
+-- Note that the library's system for modules is not connected to Lua's own system.
+-- module = require( moduleName )
+function hotLoader.require(moduleName)
+	local module = modules[moduleName]
 
-	local M = modules[modulePath]
-	if M == nil then
-		M = loadModule(modulePath, false)
+	if module == nil then
+		module = loadModule(moduleName, false)
 
-		modules[modulePath] = M
-		moduleModifiedTimes[modulePath] = getModuleLastModifiedTime(modulePath)
+		modules            [moduleName] = module
+		moduleModifiedTimes[moduleName] = getModuleLastModifiedTime(moduleName)
 
-		table.insert(modulePaths, modulePath)
+		table.insert(moduleNames, moduleName)
 	end
 
-	return M
+	return module
 end
 
 -- Forces the module to reload at next require call.
--- unrequire( modulePath )
-function hotLoader.unrequire(modulePath)
-	modules[modulePath] = nil
-	removeItem(modulePaths, modulePath)
+-- unrequire( moduleName )
+function hotLoader.unrequire(moduleName)
+	modules[moduleName] = nil
+	removeItem(moduleNames, moduleName)
 end
 
--- prerequire( modulePath, module )
-function hotLoader.prerequire(modulePath, M)
-	if M == nil then
+-- prerequire( moduleName, module )
+function hotLoader.prerequire(moduleName, module)
+	if module == nil then
 		hotLoader.log("ERROR: The module must not be nil. (Maybe you meant to use hotLoader.unrequire()?)")
 		return
 	end
 
-	if modules[modulePath] == nil then
-		table.insert(modulePaths, modulePath)
+	if modules[moduleName] == nil then
+		table.insert(moduleNames, moduleName)
 	end
 
-	modules[modulePath] = M
-	moduleModifiedTimes[modulePath] = getModuleLastModifiedTime(modulePath)
+	modules            [moduleName] = module
+	moduleModifiedTimes[moduleName] = getModuleLastModifiedTime(moduleName)
 end
 
--- bool = hasRequired( modulePath )
-function hotLoader.hasRequired(modulePath)
-	return modules[modulePath] ~= nil
+-- bool = hasRequired( moduleName )
+function hotLoader.hasRequired(moduleName)
+	return modules[moduleName] ~= nil
 end
 
 
 
 -- Allow hotLoader to access files outside the default LÖVE directories. May not always work.
 -- Note that absolute paths are required to access external files (e.g. "C:/Images/Duck.png").
--- This setting is ignored outside LÖVE.
+-- This setting is not used outside LÖVE.
 -- allowExternalPaths( bool )
 function hotLoader.allowExternalPaths(state)
 	allowPathsOutsideLove = not not state
+end
+
+-- bool = isAllowingExternalPaths( )
+function hotLoader.isAllowingExternalPaths(state)
+	return allowPathsOutsideLove
 end
 
 
@@ -708,7 +729,7 @@ end
 --     %m = message
 --     %t = time (HH:MM:SS)
 --     %% = a literal percent sign
--- Default format is "[hotLoader|%t] %m"
+-- The default format is "[HotLoader|%t] %m"
 function hotLoader.setLogFormat(s)
 	local hasD = false
 	local hasM = false
@@ -718,7 +739,7 @@ function hotLoader.setLogFormat(s)
 		if     c == "d" then  hasD = true
 		elseif c == "m" then  hasM = true
 		elseif c == "t" then  hasT = true
-		elseif c ~= "%" then  error("Invalid option '%"..c.."'. (Valid options are '%d', '%m' and '%t')", 2)  end
+		elseif c ~= "%" then  error("Invalid option '%"..c.."'. (Valid options are %d, %m and %t)", 2)  end
 	end
 
 	logFormat     = s
@@ -740,16 +761,11 @@ function hotLoader.log(s, ...)
 	local dateStr = logFormatHasD and os.date"%Y-%m-%d"
 	local timeStr = logFormatHasT and os.date"%H:%M:%S"
 
-	print((logFormat:gsub("(%%(.))", function(match, c)
-		if c == "m" then
-			return s
-		elseif c == "d" then
-			return dateStr
-		elseif c == "t" then
-			return timeStr
-		else
-			return match
-		end
+	print((logFormat:gsub("%%(.)", function(c)
+		if     c == "m" then  return s
+		elseif c == "d" then  return dateStr
+		elseif c == "t" then  return timeStr
+		else                  return c  end
 	end)))
 end
 
@@ -773,18 +789,14 @@ if love and love.audio then
 	hotLoader.setLoader(
 		"wav",
 		"ogg","oga","ogv",
-		function(filePath)
-			return love.audio.newSource(filePath, "static")
-		end
+		function(filePath)  return (love.audio.newSource(filePath, "static"))  end
 	)
 	hotLoader.setLoader(
 		"mp3",
 		"699","amf","ams","dbm","dmf","dsm","far","it","j2b","mdl","med",
 			"mod","mt2","mtm","okt","psm","s3m","stm","ult","umx","xm",
 		"abc","mid","pat",
-		function(filePath)
-			return love.audio.newSource(filePath, "stream")
-		end
+		function(filePath)  return (love.audio.newSource(filePath, "stream"))  end
 	)
 end
 

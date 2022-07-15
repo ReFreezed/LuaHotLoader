@@ -2,6 +2,9 @@
 
 ![version 1.2](https://img.shields.io/badge/version-1.2-green.svg)
 
+<!-- ![https://img.shields.io/github/release/ReFreezed/LuaPreprocess.svg](https://github.com/ReFreezed/LuaPreprocess/releases/latest) -->
+<!-- ![https://img.shields.io/github/license/ReFreezed/LuaPreprocess.svg](LICENSE.txt) -->
+
 Hot-load any file, including Lua files. Works with *LuaFileSystem* or [*LÖVE*](https://love2d.org/) (including 11.0 and 0.10).
 
 - [Usage with LuaFileSystem](#usage-with-luafilesystem)
@@ -21,6 +24,7 @@ hotLoader.load(duckImagePath)
 
 -- Program loop.
 local lastTime = os.time()
+
 while true do
 	local currentTime = os.time()
 
@@ -51,7 +55,6 @@ local player = {
 }
 
 function love.load()
-
 	-- Tell hotLoader to load .png files using love.graphics.newImage().
 	hotLoader.setLoader("png", love.graphics.newImage)
 
@@ -63,13 +66,11 @@ function love.load()
 end
 
 function love.update(dt)
-
 	-- Allow hotLoader to reload module and resource files that have been updated.
 	hotLoader.update(dt)
 end
 
 function love.draw()
-
 	-- Show if debug mode is enabled.
 	local settings = hotLoader.require("gameSettings")
 	if settings.enableDebug then
@@ -98,6 +99,7 @@ hotLoader.getLoader()
 hotLoader.getLogformat()
 hotLoader.hasLoaded()
 hotLoader.hasRequired()
+hotLoader.isAllowingExternalPaths()
 hotLoader.load()
 hotLoader.preload()
 hotLoader.prerequire()
