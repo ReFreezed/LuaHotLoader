@@ -136,6 +136,10 @@ local hotLoader = {
 	]]
 }
 
+if not (love or pcall(require, "lfs")) then
+	error("[HotLoader] Failed detecting LuaFileSystem or LÖVE!", 0)
+end
+
 
 
 --==============================================================
@@ -145,30 +149,21 @@ local hotLoader = {
 local checkingInterval      = 1.00
 local allowPathsOutsideLove = false
 
-local logFormat             = "[HotLoader|%t] %m"
-local logFormatHasD         = false
-local logFormatHasM         = true
-local logFormatHasT         = true
+local logFormat     = "[HotLoader|%t] %m"
+local logFormatHasD = false
+local logFormatHasM = true
+local logFormatHasT = true
 
-local loaders               = {--[[ [fileExtension1]=loader, ... ]]}
-local customLoaders         = {--[[ [filePath1]=loader, ... ]]}
-local defaultLoader         = nil
+local loaders       = {--[[ [fileExtension1]=loader, ... ]]}
+local customLoaders = {--[[ [filePath1]=loader, ... ]]}
+local defaultLoader = nil
 
-local modules               = {--[[ [moduleName1]=module, ... ]]}
-local moduleNames           = {--[[ moduleName1, ... ]]}
-local moduleModifiedTimes   = {--[[ [moduleName1]=modifiedTime, ... ]]}
+local watchedResources = {} -- watched* = { [watcher1.id]=watcher1, watcher1, ... }
+local watchedModules   = {} -- watcher  = { id=filePath|moduleName, value=resource|module, path=filePath, modified=modifiedTime|nil, handle=ffiHandle|nil }
 
-local resources             = {--[[ [filePath1]=resource, ... ]]}
-local resourcePaths         = {--[[ filePath1, ... ]]}
-local resourceModifiedTimes = {--[[ [filePath1]=modifiedTime, ... ]]}
-
-local time                  = 0.00
-local lastCheckedIndex      = 0
-local stateHasBeenReset     = false
-
-
-
-local love_getFileInfo = love and love.filesystem.getInfo
+local time              = 0.00
+local lastCheckedIndex  = 0
+local stateHasBeenReset = false
 
 
 
@@ -190,6 +185,8 @@ local isLovePath
 	end
 
 
+
+local love_getFileInfo = love and love.filesystem.getInfo
 
 -- bool = fileExists( filePath )
 local function fileExists(filePath)
@@ -342,7 +339,7 @@ local getLastModifiedTime
 		return time
 	end
 
-	or require"lfs" and function(filePath)
+	or function(filePath)
 		return require"lfs".attributes(filePath, "modification")
 	end
 
@@ -414,21 +411,46 @@ end
 
 
 
--- index = indexOf( table, value )
-local function indexOf(t, targetV)
-	for i, v in ipairs(t) do
+-- index|nil = indexOf( table, value )
+local function indexOf(arr, targetV)
+	for i, v in ipairs(arr) do
 		if v == targetV then  return i  end
 	end
 	return nil
 end
 
--- index = removeItem( table, value )
-local function removeItem(t, v)
-	local i = indexOf(t, v)
+-- index|nil = removeItem( table, value )
+local function removeItem(arr, v)
+	local i = indexOf(arr, v)
 	if not i then  return nil  end
 
-	table.remove(t, i)
+	table.remove(arr, i)
 	return i
+end
+
+
+
+-- watcher = createAndRegisterWatcher( watchers, id, path, value )
+local function createAndRegisterWatcher(watchers, id, path, value)
+	assert(not watchers[id])
+
+	local watcher = {id=id, value=value, path=path, modified=getLastModifiedTime(path), handle=nil}
+	table.insert(watchers, watcher)
+	watchers[id] = watcher
+
+	-- @Incomplete: Watch the path using ffi.
+
+	return watcher
+end
+
+-- unregisterWatcher( watchers, watcher|nil )
+local function unregisterWatcher(watchers, watcher)
+	if not watcher then  return  end
+
+	removeItem(watchers, watcher)
+	watchers[watcher.id] = nil
+
+	-- @Incomplete: Stop watching the path using ffi.
 end
 
 
@@ -447,8 +469,8 @@ end
 
 -- update( deltaTime )
 function hotLoader.update(dt)
-	local moduleCount = #moduleNames
-	local pathCount   = moduleCount + #resourcePaths
+	local moduleCount = #watchedModules
+	local pathCount   = moduleCount + #watchedResources
 	if pathCount == 0 then  return  end
 
 	time = time + dt
@@ -466,40 +488,40 @@ function hotLoader.update(dt)
 
 		-- Check next module.
 		if lastCheckedIndex <= moduleCount then
-			local moduleName   = moduleNames[lastCheckedIndex]
-			local modifiedTime = getModuleLastModifiedTime(moduleName)
+			local watcher = watchedModules[lastCheckedIndex]
+			local modTime = getLastModifiedTime(watcher.path)
 
-			if modifiedTime ~= moduleModifiedTimes[moduleName] then
-				hotLoader.log("Reloading module: %s", moduleName)
+			if modTime ~= watcher.modified then
+				hotLoader.log("Reloading module: %s", watcher.id)
 
-				local module = loadModule(moduleName, true)
+				local module = loadModule(watcher.id, true)
 				if module == nil then
-					hotLoader.log("Failed reloading module: %s", moduleName)
+					hotLoader.log("Failed reloading module: %s", watcher.id)
 				else
-					modules[moduleName] = module
-					hotLoader.log("Reloaded module: %s", moduleName)
+					watcher.value = module
+					hotLoader.log("Reloaded module: %s", watcher.id)
 				end
 
-				moduleModifiedTimes[moduleName] = modifiedTime
+				watcher.modified = modTime -- Set this even if loading failed. We don't want to keep loading a corrupt file, for example.
 			end
 
 		-- Check next resource.
 		else
-			local filePath     = resourcePaths[lastCheckedIndex - moduleCount]
-			local modifiedTime = getLastModifiedTime(filePath)
+			local watcher = watchedResources[lastCheckedIndex - moduleCount]
+			local modTime = getLastModifiedTime(watcher.path)
 
-			if modifiedTime ~= resourceModifiedTimes[filePath] then
-				hotLoader.log("Reloading resource: %s", filePath)
+			if modTime ~= watcher.modified then
+				hotLoader.log("Reloading resource: %s", watcher.id)
 
-				local res = loadResource(filePath, true)
+				local res = loadResource(watcher.path, true)
 				if res == nil then
-					hotLoader.log("Failed reloading resource: %s", filePath)
+					hotLoader.log("Failed reloading resource: %s", watcher.id)
 				else
-					resources[filePath] = res
-					hotLoader.log("Reloaded resource: %s", filePath)
+					watcher.value = res
+					hotLoader.log("Reloaded resource: %s", watcher.id)
 				end
 
-				resourceModifiedTimes[filePath] = modifiedTime
+				watcher.modified = modTime -- Set this even if loading failed. We don't want to keep loading a corrupt file, for example.
 			end
 		end
 	end
@@ -620,39 +642,28 @@ function hotLoader.load(filePath, protected, loader)
 		hotLoader.setCustomLoader(filePath, loader)
 	end
 
-	local res = resources[filePath]
+	local watcher = watchedResources[filePath]
 
-	if res == nil then
-		local err
-		res, err = loadResource(filePath, (protected or false))
+	if not watcher then
+		local res, err = loadResource(filePath, protected)
+		if not res then  return nil, err  end
 
-		if not res then
-			if not indexOf(resourcePaths, filePath) then
-				table.insert(resourcePaths, filePath)
-			end
-			return nil, err
-		end
-
-		resources            [filePath] = res
-		resourceModifiedTimes[filePath] = getLastModifiedTime(filePath)
-
-		table.insert(resourcePaths, filePath)
+		watcher = createAndRegisterWatcher(watchedResources, filePath, filePath, res)
 	end
 
-	return res
+	return watcher.value
 end
 
 -- Forces the resource to reload at next load call.
 -- unload( filePath )
 function hotLoader.unload(filePath)
-	resources[filePath] = nil
-	removeItem(resourcePaths, filePath)
+	unregisterWatcher(watchedResources, watchedResources[filePath])
 end
 
 -- preload( filePath, resource [, customLoader ] )
 function hotLoader.preload(filePath, res, loader)
-	if res == nil then
-		hotLoader.log("ERROR: The resource must not be nil. (Maybe you meant to use hotLoader.unload()?)")
+	if not res then
+		hotLoader.log("ERROR: The resource must not be nil or false. (Maybe you meant to use hotLoader.unload()?)")
 		return
 	end
 
@@ -660,17 +671,19 @@ function hotLoader.preload(filePath, res, loader)
 		hotLoader.setCustomLoader(filePath, loader)
 	end
 
-	if resources[filePath] == nil then
-		table.insert(resourcePaths, filePath)
-	end
+	local watcher = watchedResources[filePath]
 
-	resources            [filePath] = res
-	resourceModifiedTimes[filePath] = getLastModifiedTime(filePath)
+	if watcher then
+		watcher.value    = res
+		watcher.modified = getLastModifiedTime(filePath) -- May be unnecessary in most cases, but we should seldom reach this line anyway.
+	else
+		createAndRegisterWatcher(watchedResources, filePath, filePath, res)
+	end
 end
 
 -- bool = hasLoaded( filePath )
 function hotLoader.hasLoaded(filePath)
-	return resources[filePath] ~= nil
+	return watchedResources[filePath] ~= nil
 end
 
 
@@ -679,25 +692,17 @@ end
 -- Note that the library's system for modules is not connected to Lua's own system.
 -- module = require( moduleName )
 function hotLoader.require(moduleName)
-	local module = modules[moduleName]
-
-	if module == nil then
-		module = loadModule(moduleName, false)
-
-		modules            [moduleName] = module
-		moduleModifiedTimes[moduleName] = getModuleLastModifiedTime(moduleName)
-
-		table.insert(moduleNames, moduleName)
-	end
-
-	return module
+	local watcher = (
+		watchedModules[moduleName]
+		or createAndRegisterWatcher(watchedModules, moduleName, getModuleFilePath(moduleName), loadModule(moduleName, false))
+	)
+	return watcher.value
 end
 
 -- Forces the module to reload at next require call.
 -- unrequire( moduleName )
 function hotLoader.unrequire(moduleName)
-	modules[moduleName] = nil
-	removeItem(moduleNames, moduleName)
+	unregisterWatcher(watchedModules, watchedModules[moduleName])
 end
 
 -- prerequire( moduleName, module )
@@ -707,17 +712,19 @@ function hotLoader.prerequire(moduleName, module)
 		return
 	end
 
-	if modules[moduleName] == nil then
-		table.insert(moduleNames, moduleName)
-	end
+	local watcher = watchedModules[moduleName]
 
-	modules            [moduleName] = module
-	moduleModifiedTimes[moduleName] = getModuleLastModifiedTime(moduleName)
+	if watcher then
+		watcher.value    = module
+		watcher.modified = getModuleLastModifiedTime(moduleName) -- May be unnecessary in most cases, but we should seldom reach this line anyway.
+	else
+		createAndRegisterWatcher(watchedModules, moduleName, getModuleFilePath(moduleName), module)
+	end
 end
 
 -- bool = hasRequired( moduleName )
 function hotLoader.hasRequired(moduleName)
-	return modules[moduleName] ~= nil
+	return watchedModules[moduleName] ~= nil
 end
 
 
@@ -784,7 +791,7 @@ end
 
 
 -- To silence hotLoader you can do hotLoader.log=function()end
--- log( formatString, value... )
+-- log( formatString, value1, ... )
 function hotLoader.log(s, ...)
 	s             = s:format(...)
 	local dateStr = logFormatHasD and os.date"%Y-%m-%d"
