@@ -155,11 +155,11 @@ local logFormatHasM = true
 local logFormatHasT = true
 
 local loaders       = {--[[ [fileExtension1]=loader, ... ]]}
-local customLoaders = {--[[ [filePath1]=loader, ... ]]}
+local customLoaders = {--[[ [path1]=loader, ... ]]}
 local defaultLoader = nil
 
-local watchedResources = {} -- watched* = { [watcher1.id]=watcher1, watcher1, ... }
-local watchedModules   = {} -- watcher  = { id=filePath|moduleName, value=resource|module, path=filePath, modified=modifiedTime|nil, handle=ffiHandle|nil }
+local watchedModules   = {} -- watched* = { [watcher1.id]=watcher1, watcher1, ... }
+local watchedResources = {} -- watcher  = see createAndRegisterWatcher()
 
 local time              = 0.00
 local lastCheckedIndex  = 0
@@ -173,12 +173,42 @@ local stateHasBeenReset = false
 
 
 
--- bool = isLovePath( filePath )
-local isLovePath
-	= love and function(filePath)
-		if not allowPathsOutsideLove then  return true  end -- This will result in LÖVE functions being used for external paths resulting in errors.
+local function errorf(level, s, ...)
+	error(
+		("[HotLoader] "..s):format(...),
+		level == 0 and 0 or 1+level
+	)
+end
 
-		return filePath:sub(1, 1) ~= "/" and filePath:find"^%a:" == nil
+-- logError( message )
+-- logError( messageFormat, value1, ... )
+local function logError(s, ...)
+	if    select("#", ...) > 0
+	then  hotLoader.log("Error: "..s, ...)
+	else  hotLoader.log("Error: %s", s)  end
+end
+
+-- logWarning( message )
+-- logWarning( messageFormat, value1, ... )
+local function logWarning(s, ...)
+	if    select("#", ...) > 0
+	then  hotLoader.log("Warning: "..s, ...)
+	else  hotLoader.log("Warning: %s", s)  end
+end
+
+
+
+local function isPathAbsolute(path)
+	return (path:find"^[/\\]" or path:find"^%a:") ~= nil
+end
+
+
+
+-- bool = isLovePath( path )
+local isLovePath
+	= love and function(path)
+		if not allowPathsOutsideLove then  return true  end -- This will result in LÖVE functions being used for external paths resulting in errors.
+		return not isPathAbsolute(path)
 	end
 	or function()
 		return false
@@ -188,17 +218,17 @@ local isLovePath
 
 local love_getFileInfo = love and love.filesystem.getInfo
 
--- bool = fileExists( filePath )
-local function fileExists(filePath)
-	if isLovePath(filePath) then
+-- bool = fileExists( path )
+local function fileExists(path)
+	if isLovePath(path) then
 		if love_getFileInfo then
-			return (love_getFileInfo(filePath, "file") ~= nil)
+			return (love_getFileInfo(path, "file") ~= nil)
 		else
-			return love.filesystem.exists(filePath)
+			return love.filesystem.exists(path)
 		end
 	end
 
-	local file = io.open(filePath, "r")
+	local file = io.open(path, "r")
 	if not file then  return false  end
 
 	file:close()
@@ -217,13 +247,13 @@ local getCurrentClock
 
 
 
--- contents, errorMessage = getFileContents( filePath )
-local function getFileContents(filePath)
-	if isLovePath(filePath) then
-		return love.filesystem.read(filePath)
+-- contents, errorMessage = getFileContents( path )
+local function getFileContents(path)
+	if isLovePath(path) then
+		return love.filesystem.read(path)
 	end
 
-	local file, err = io.open(filePath, "rb")
+	local file, err = io.open(path, "rb")
 	if not file then  return nil, err  end
 
 	local contents = file:read"*a"
@@ -232,13 +262,13 @@ local function getFileContents(filePath)
 	return contents
 end
 
--- chunk, errorMessage = loadLuaFile( filePath )
-local loadLuaFile = love and love.filesystem.load or _G.loadfile
+-- chunk, errorMessage = loadLuaFile( path )
+local loadLuaFile = love and love.filesystem.load or loadfile
 
 
 
--- filePaths = getRequirePath( )
--- filePaths = "filePath1;..."
+-- templates = getRequirePath( )
+-- templates = "template1;..."
 local getRequirePath
 	= love and love.filesystem.getRequirePath
 	or function()
@@ -253,7 +283,7 @@ end
 
 
 
--- filePath = getModuleFilePath( moduleName )
+-- path = getModuleFilePath( moduleName )
 local getModuleFilePath
 do
 	local dirSep, tempSep, subPoint = package.config:match"^(%C)\n(%C)\n(%C)\n" -- Hopefully each line has a single character!
@@ -264,42 +294,42 @@ do
 	local TEMPLATE_PATTERN           = "[^" .. escapePattern(tempSep) .. "]+"
 	local SUBSTITUTION_POINT_PATTERN = escapePattern(subPoint)
 
-	local moduleFilePaths         = {--[[ [moduleName1]=filePath, ... ]]}
+	local modulePaths             = {--[[ [moduleName1]=path, ... ]]}
 	local moduleNameModifications = {["."]=dirSep:gsub("%%", "%%%%"), ["%"]="%%%%"}
 
 	--[[local]] function getModuleFilePath(moduleName)
-		local filePath = moduleFilePaths[moduleName]
-		if filePath then  return filePath  end
+		local path = modulePaths[moduleName]
+		if path then  return path  end
 
 		local moduleNameModified = moduleName:gsub("[.%%]", moduleNameModifications) -- Change e.g. "foo.bar%1" into "foo/bar%%1".
 
 		for template in getRequirePath():gmatch(TEMPLATE_PATTERN) do
-			local currentFilePath = template:gsub(SUBSTITUTION_POINT_PATTERN, moduleNameModified)
+			local currentPath = template:gsub(SUBSTITUTION_POINT_PATTERN, moduleNameModified)
 
-			if fileExists(currentFilePath) then
-				filePath = currentFilePath
+			if fileExists(currentPath) then
+				path = currentPath
 				break
 			end
 		end
 
-		moduleFilePaths[moduleName] = filePath or error("[HotLoader] Cannot find module '"..moduleName.."'.")
-		return filePath
+		modulePaths[moduleName] = path or errorf(1, "Cannot find module '%s'.", moduleName)
+		return path
 	end
 end
 
 
 
--- time, errorMessage = getLastModifiedTime( filePath )
+-- time, errorMessage = getLastModifiedTime( path )
 local fakeModifiedTimes = {}
 local fileSizes         = {}
 
 local getLastModifiedTime
 
-	= love and function(filePath)
-		if isLovePath(filePath) then
+	= love and function(path)
+		if isLovePath(path) then
 			if love_getFileInfo then
 				-- LÖVE 11.0+
-				local info = love_getFileInfo(filePath, "file")
+				local info = love_getFileInfo(path, "file")
 				local time = info and info.modtime
 				if time then  return time  end
 
@@ -307,7 +337,7 @@ local getLastModifiedTime
 
 			else
 				-- LÖVE 0.10.2-
-				return love.filesystem.getLastModified(filePath)
+				return love.filesystem.getLastModified(path)
 			end
 		end
 
@@ -315,32 +345,32 @@ local getLastModifiedTime
 		-- If the size changed then we generate a fake modification time.
 		-- @Incomplete: Do this if neither LÖVE nor LuaFileSystem is available.
 
-		local file, err = io.open(filePath, "r")
+		local file, err = io.open(path, "r")
 		if not file then
-			fakeModifiedTimes[filePath] = nil
+			fakeModifiedTimes[path] = nil
 			return nil, "Could not determine file modification time."
 		end
 
 		local fileSize = file:seek"end"
 		file:close()
 		if not fileSize then
-			fakeModifiedTimes[filePath] = nil
+			fakeModifiedTimes[path] = nil
 			return nil, "Could not determine file modification time."
 		end
 
-		local time = fakeModifiedTimes[filePath]
-		if time and fileSize == fileSizes[filePath] then  return time  end
+		local time = fakeModifiedTimes[path]
+		if time and fileSize == fileSizes[path] then  return time  end
 
-		fileSizes[filePath] = fileSize
+		fileSizes[path] = fileSize
 
 		time = os.time()--getCurrentClock()
-		fakeModifiedTimes[filePath] = time
+		fakeModifiedTimes[path] = time
 
 		return time
 	end
 
-	or function(filePath)
-		return require"lfs".attributes(filePath, "modification")
+	or function(path)
+		return require"lfs".attributes(path, "modification")
 	end
 
 -- time, errorMessage = getModuleLastModifiedTime( moduleName )
@@ -358,7 +388,7 @@ local function loadModule(moduleName, protected)
 	if protected then
 		local ok, chunkOrErr = pcall(loadLuaFile, getModuleFilePath(moduleName))
 		if not ok then
-			hotLoader.log("ERROR: %s", chunkOrErr)
+			logError(chunkOrErr)
 			return nil
 		end
 		module = chunkOrErr()
@@ -373,36 +403,36 @@ end
 
 
 
--- resource, errorMessage = loadResource( filePath, protected )
+-- resource, errorMessage = loadResource( path, protected )
 -- protected: If true then errors are returned, otherwise errors are raised.
-local function loadResource(filePath, protected)
+local function loadResource(path, protected)
 	local loader
-		=  customLoaders[filePath]
-		or loaders[filePath:match"%.([^.]+)$"]
+		=  customLoaders[path]
+		or loaders[path:match"%.([^.]+)$"]
 		or defaultLoader
 		or getFileContents
 
 	local res
 
 	if protected then
-		local ok, resOrErr = pcall(loader, filePath)
+		local ok, resOrErr = pcall(loader, path)
 
 		if not ok then
-			hotLoader.log("ERROR: %s", resOrErr)
+			logError(resOrErr)
 			return nil, resOrErr
 
 		elseif not resOrErr then
-			local err = "Loader returned nothing for '"..filePath.."'."
-			hotLoader.log("ERROR: %s", err)
+			local err = "Loader returned nothing for '"..path.."'."
+			logError(err)
 			return nil, err
 		end
 
 		res = resOrErr
 
 	else
-		res = loader(filePath)
+		res = loader(path)
 		if not res then
-			error("[HotLoader] Loader returned nothing for '"..filePath.."'.")
+			errorf(1, "Loader returned nothing for '%s'.", path)
 		end
 	end
 
@@ -411,7 +441,7 @@ end
 
 
 
--- index|nil = indexOf( table, value )
+-- index|nil = indexOf( array, value )
 local function indexOf(arr, targetV)
 	for i, v in ipairs(arr) do
 		if v == targetV then  return i  end
@@ -419,7 +449,7 @@ local function indexOf(arr, targetV)
 	return nil
 end
 
--- index|nil = removeItem( table, value )
+-- removedIndex|nil = removeItem( array, value )
 local function removeItem(arr, v)
 	local i = indexOf(arr, v)
 	if not i then  return nil  end
@@ -430,15 +460,316 @@ end
 
 
 
--- watcher = createAndRegisterWatcher( watchers, id, path, value )
-local function createAndRegisterWatcher(watchers, id, path, value)
-	assert(not watchers[id])
+-- lookupArrayInsert( lookupArray, key, value )
+local function lookupArrayInsert(lookupArr, k, v)
+	table.insert(lookupArr, v)
+	lookupArr[k] = v
+end
 
-	local watcher = {id=id, value=value, path=path, modified=getLastModifiedTime(path), handle=nil}
-	table.insert(watchers, watcher)
-	watchers[id] = watcher
+-- removedValue = lookupArrayRemove( lookupArray, key, index )
+local function lookupArrayRemove(lookupArr, k, i)
+	local v      = table.remove(lookupArr, i)
+	lookupArr[k] = nil
+	return v
+end
 
-	-- @Incomplete: Watch the path using ffi.
+-- removedIndex = lookupArrayRemoveItem( lookupArray, key, value )
+local function lookupArrayRemoveItem(lookupArr, k, v)
+	if removeItem(lookupArr, v) then
+		lookupArr[k] = nil
+	end
+end
+
+
+
+--
+-- FFI stuff.
+--
+local ffi = jit and require"ffi" or nil
+local C   = jit and ffi.C        or nil
+
+-- Note: Returns a signed integer!
+local function ffi_pointerToInt(ptr)
+	return tonumber(ffi.cast("intptr_t", ffi.cast("void*", ptr)))
+end
+
+
+
+--
+-- FFI Windows stuff.
+--
+local CODE_PAGE_UTF8 = 65001
+
+local INVALID_HANDLE_VALUE = -1
+
+local FILE_NOTIFY_CHANGE_FILE_NAME  = 0x001
+local FILE_NOTIFY_CHANGE_DIR_NAME   = 0x002
+local FILE_NOTIFY_CHANGE_ATTRIBUTES = 0x004
+local FILE_NOTIFY_CHANGE_SIZE       = 0x008
+local FILE_NOTIFY_CHANGE_LAST_WRITE = 0x010
+local FILE_NOTIFY_CHANGE_SECURITY   = 0x100
+
+local WAIT_OBJECT_0    = 0x00000000
+local WAIT_ABANDONED_0 = 0x00000080
+local WAIT_TIMEOUT     = 0x00000102
+local WAIT_FAILED      = 0xffffffff
+
+local GENERIC_ALL     = 0x10000000
+local GENERIC_EXECUTE = 0x20000000
+local GENERIC_WRITE   = 0x40000000
+local GENERIC_READ    = 0x80000000
+
+local FILE_SHARE_0      = 0x0
+local FILE_SHARE_READ   = 0x1
+local FILE_SHARE_WRITE  = 0x2
+local FILE_SHARE_DELETE = 0x4
+
+local CREATE_NEW        = 1
+local CREATE_ALWAYS     = 2
+local OPEN_EXISTING     = 3
+local OPEN_ALWAYS       = 4
+local TRUNCATE_EXISTING = 5
+
+local FORMAT_MESSAGE_ALLOCATE_BUFFER = 0x00000100
+local FORMAT_MESSAGE_IGNORE_INSERTS  = 0x00000200 -- Things like "%1".
+local FORMAT_MESSAGE_FROM_SYSTEM     = 0x00001000 -- For GetLastError().
+
+local ffiWindows                    = jit ~= nil and jit.os == "Windows"
+local ffiWindows_initted            = false
+local ffiWindows_watchedDirectories = {--[[ { directory=directory, watcherCount=fileWatchCount, notification=notificationHandle }, ... ]]}
+
+local function ffiWindows_init()
+	if ffiWindows_initted then  return  end
+	ffiWindows_initted = true
+
+	local ok, err = pcall(ffi.cdef, [[//C
+		typedef       int           BOOL, *LPBOOL;
+		typedef       unsigned int  UINT;
+		typedef       uint32_t      DWORD, *LPDWORD;
+		typedef       char          *PSTR, *LPSTR;
+		typedef       wchar_t       *LPWSTR;
+		typedef       void          *HANDLE, *HLOCAL, *LPVOID;
+		typedef const char          *LPCCH;
+		typedef const wchar_t       *LPCWSTR;
+		typedef const void          *LPCVOID;
+
+		typedef struct {
+			DWORD  nLength;
+			LPVOID lpSecurityDescriptor;
+			BOOL   bInheritHandle;
+		} SECURITY_ATTRIBUTES, *LPSECURITY_ATTRIBUTES;
+
+		int MultiByteToWideChar(
+			UINT    codePage,
+			DWORD   dwFlags,
+			LPCCH   lpMultiByteStr,
+			int     cbMultiByte,
+			LPCWSTR lpWideCharStr,
+			int     cchWideChar
+		);
+		int WideCharToMultiByte(
+			UINT    codePage,
+			DWORD   dwFlags,
+			LPCWSTR lpWideCharStr,
+			int     cchWideChar,
+			LPCCH   lpMultiByteStr,
+			int     cbMultiByte,
+			LPCCH   lpDefaultChar,
+			LPBOOL  lpUsedDefaultChar
+		);
+
+		HANDLE FindFirstChangeNotificationW(
+			LPCWSTR lpPathName,
+			BOOL    bWatchSubtree,
+			DWORD   dwNotifyFilter
+		);
+		BOOL FindNextChangeNotification(
+			HANDLE hChangeHandle
+		);
+		BOOL FindCloseChangeNotification(
+			HANDLE hChangeHandle
+		);
+
+		DWORD WaitForSingleObject(
+			HANDLE hHandle,
+			DWORD  dwMilliseconds
+		);
+		// DWORD WaitForMultipleObjects(
+		// 	DWORD        nCount,
+		// 	const HANDLE *lpHandles,
+		// 	BOOL         bWaitAll,
+		// 	DWORD        dwMilliseconds
+		// );
+
+		DWORD GetLastError();
+
+		HANDLE CreateFileW(
+			LPCWSTR               lpFileName,
+			DWORD                 dwDesiredAccess,
+			DWORD                 dwShareMode,
+			LPSECURITY_ATTRIBUTES lpSecurityAttributes,
+			DWORD                 dwCreationDisposition,
+			DWORD                 dwFlagsAndAttributes,
+			HANDLE                hTemplateFile
+		);
+		BOOL CloseHandle(
+			HANDLE hObject
+		);
+
+		DWORD FormatMessageW(
+			DWORD   dwFlags,
+			LPCVOID lpSource,
+			DWORD   dwMessageId,
+			DWORD   dwLanguageId,
+			LPWSTR  lpBuffer,
+			DWORD   nSize,
+			va_list *Arguments
+		);
+
+		HLOCAL LocalFree(
+			HLOCAL hMem
+		);
+	]])
+	if not ok then
+		logWarning("[Windows] Failed registering declarations: %s", err)
+	end
+end
+
+local function ffiWindows_stringToWide(s)
+	local wlen   = C.MultiByteToWideChar(CODE_PAGE_UTF8, 0, s, #s, nil, 0)
+	local buffer = ffi.new("wchar_t[?]", wlen+1) -- @Memory @Speed
+	C.MultiByteToWideChar(CODE_PAGE_UTF8, 0, s, #s, buffer, wlen)
+	return buffer
+end
+
+-- string = ffiWindows_wideToString( wideString [, wideLength=zeroTerminated ] )
+local function ffiWindows_wideToString(wstr, wlen)
+	wlen = wlen or -1
+
+	local len = C.WideCharToMultiByte(
+		--[[codePage         ]] CODE_PAGE_UTF8,
+		--[[dwFlags          ]] 0,
+		--[[lpWideCharStr    ]] wstr,
+		--[[cchWideChar      ]] wlen,
+		--[[lpMultiByteStr   ]] nil,
+		--[[cbMultiByte      ]] 0,
+		--[[lpDefaultChar    ]] nil,
+		--[[lpUsedDefaultChar]] nil
+	)
+	local buffer = ffi.new("char[?]", len+1) -- @Memory @Speed
+
+	C.WideCharToMultiByte(CODE_PAGE_UTF8, 0, wstr, wlen, buffer, len, nil, nil)
+
+	return ffi.string(buffer, len)
+end
+
+local function ffiWindows_logLastError(funcName, infoStr)
+	local errCode       = C.GetLastError()
+	local errWstrHolder = ffi.new("LPWSTR[1]") -- [1] is a hack to get a pointer to a pointer working. #JustLuaJitThings
+
+	local errWlen = C.FormatMessageW(
+		FORMAT_MESSAGE_ALLOCATE_BUFFER + FORMAT_MESSAGE_FROM_SYSTEM + FORMAT_MESSAGE_IGNORE_INSERTS,
+		nil,
+		errCode,
+		--[[LANG_NEUTRAL]]0x0 + --[[SUBLANG_NEUTRAL]]0x0*2^10, -- MAKELANGID(p, s) = (WORD(s) << 10) | WORD(p)
+		ffi.cast("LPWSTR", errWstrHolder),
+		0,
+		nil
+	)
+
+	local errStr = (errWlen > 0) and ffiWindows_wideToString(errWstrHolder[0], errWlen):gsub("%s+$", "") or "<failed getting error message>"
+	if errWlen ~= 0 then
+		C.LocalFree(errWstrHolder[0]) -- FormatMessageW() allocated this for us.
+	end
+
+	hotLoader.log("[Windows] FFI error (function=%s, code=%d, info='%s'): %s", funcName, errCode, infoStr, errStr)
+end
+
+-- Note: Returns false on error.
+local function ffiWindows_isWritable(fullPath)
+	-- https://stackoverflow.com/questions/25227151/check-if-a-file-is-being-written-using-win32-api-or-c-c-i-do-not-have-write-a/25229839#25229839
+	local wfullPath = ffiWindows_stringToWide(fullPath)
+	local file      = C.CreateFileW(wfullPath, GENERIC_READ, FILE_SHARE_READ, nil, OPEN_EXISTING, 0, nil)
+
+	-- print("isWritable", ffi_pointerToInt(file) ~= INVALID_HANDLE_VALUE, fullPath) -- DEBUG
+
+	if ffi_pointerToInt(file) == INVALID_HANDLE_VALUE then  return false  end
+
+	C.CloseHandle(file)
+	return true
+end
+
+local function ffiWindows_unwatchDirectory(dirWatcher)
+	lookupArrayRemoveItem(ffiWindows_watchedDirectories, dirWatcher.directory, dirWatcher)
+
+	if C.FindCloseChangeNotification(dirWatcher.notification) == 0 then
+		ffiWindows_logLastError("FindCloseChangeNotification", "directory="..dirWatcher.directory)
+	end
+end
+
+
+
+-- watcher = createAndRegisterWatcher( level, watchers, id, path, value )
+local function createAndRegisterWatcher(level, watchers, id, path, value)
+	assert(not watchers[id], id)
+
+	local watcher = {
+		id       = id,
+		value    = value,
+		path     = path,
+		modified = getLastModifiedTime(path),
+
+		-- ffiWindows:
+		fullPath                = "",
+		watchedDirectory        = nil, -- If this is nil then we use the normal file modification time check.
+		watchedDirectoryChanged = false,
+	}
+	lookupArrayInsert(watchers, id, watcher)
+
+	if ffiWindows then
+		ffiWindows_init()
+
+		if isLovePath(path) then
+			local baseDir, err = love.filesystem.getRealDirectory(path) -- Fails when allowPathsOutsideLove is false.
+			if not baseDir then
+				errorf(1+level, "Could not get base directory for file '%s'. (%s)", path, err)
+			end
+			watcher.fullPath = baseDir .. "/" .. path -- @Polish: Use OS-specific separator.
+
+		elseif isPathAbsolute(path) then
+			watcher.fullPath = path
+
+		else
+			watcher.fullPath = (love and love.filesystem.getWorkingDirectory() or assert(require"lfs".currentdir())) .. "/" .. path -- @Polish: Use OS-specific separator.
+		end
+
+		local dir = watcher.fullPath:gsub("[/\\][^/\\]+$", "")
+		if dir == "" then  dir = "/"  end -- @Polish: Use OS-specific separator.
+		assert(dir ~= watcher.fullPath, dir)
+
+		local dirWatcher = ffiWindows_watchedDirectories[dir]
+
+		if not dirWatcher then
+			local wdir = ffiWindows_stringToWide(dir)
+
+			-- Note: FILE_NOTIFY_CHANGE_LAST_WRITE usually fire two (or more?) notifications in a row.
+			-- https://devblogs.microsoft.com/oldnewthing/20140507-00/?p=1053
+			local notification = C.FindFirstChangeNotificationW(wdir, false, FILE_NOTIFY_CHANGE_LAST_WRITE+FILE_NOTIFY_CHANGE_SIZE)
+
+			if ffi_pointerToInt(notification) == INVALID_HANDLE_VALUE and false then
+				ffiWindows_logLastError("FindFirstChangeNotificationW", "directory="..dir)
+			else
+				hotLoader.log("[Windows] Watching directory '%s'.", dir)
+				dirWatcher = {directory=dir, watcherCount=0, notification=notification}
+				lookupArrayInsert(ffiWindows_watchedDirectories, dir, dirWatcher)
+			end
+		end
+
+		if dirWatcher then
+			watcher.watchedDirectory = dir
+			dirWatcher.watcherCount  = dirWatcher.watcherCount + 1
+		end
+	end
 
 	return watcher
 end
@@ -447,16 +778,53 @@ end
 local function unregisterWatcher(watchers, watcher)
 	if not watcher then  return  end
 
-	removeItem(watchers, watcher)
-	watchers[watcher.id] = nil
+	lookupArrayRemoveItem(watchers, watcher.id, watcher)
 
-	-- @Incomplete: Stop watching the path using ffi.
+	if ffiWindows then
+		local dir        = watcher.watchedDirectory
+		local dirWatcher = ffiWindows_watchedDirectories[dir]
+
+		if dirWatcher then
+			dirWatcher.watcherCount = dirWatcher.watcherCount - 1
+			if dirWatcher.watcherCount == 0 then  ffiWindows_unwatchDirectory(dirWatcher)  end
+		end
+	end
 end
 
 
 
-local function noDefaultLoader(filePath)
-	error("[HotLoader] No loader is available for '"..filePath.."' (and the default loader is disabled).")
+local function noDefaultLoader(path)
+	errorf(1, "No loader is available for '%s' (and the default loader is disabled).", path)
+end
+
+
+
+local function reloadModuleIfModTimeChanged(watcher)
+	local modTime = getLastModifiedTime(watcher.path)
+	if modTime == watcher.modified then  return  end
+
+	hotLoader.log("Reloading module: %s", watcher.id)
+	local module = loadModule(watcher.id, true)
+
+	if    module == nil
+	then  hotLoader.log("Failed reloading module: %s", watcher.id)
+	else  hotLoader.log("Reloaded module: %s"        , watcher.id) ; watcher.value = module  end
+
+	watcher.modified = modTime -- Set this even if loading failed. We don't want to keep loading a corrupt file, for example.
+end
+
+local function reloadResourceIfModTimeChanged(watcher)
+	local modTime = getLastModifiedTime(watcher.path)
+	if modTime == watcher.modified then  return  end
+
+	hotLoader.log("Reloading resource: %s", watcher.id)
+	local res = loadResource(watcher.id, true)
+
+	if    not res
+	then  hotLoader.log("Failed reloading resource: %s", watcher.id)
+	else  hotLoader.log("Reloaded resource: %s"        , watcher.id) ; watcher.value = res  end
+
+	watcher.modified = modTime -- Set this even if loading failed. We don't want to keep loading a corrupt file, for example.
 end
 
 
@@ -466,6 +834,8 @@ end
 --==============================================================
 
 
+
+local directoryWatcherIndicesToRemove = {}
 
 -- update( deltaTime )
 function hotLoader.update(dt)
@@ -481,47 +851,100 @@ function hotLoader.update(dt)
 
 	stateHasBeenReset = false
 
+	--
+	-- Check directories.
+	--
+	if ffiWindows then
+		for i, dirWatcher in ipairs(ffiWindows_watchedDirectories) do
+			local gotSignal = false
+
+			while true do
+				local code = C.WaitForSingleObject(dirWatcher.notification, 0)
+
+				if code == WAIT_OBJECT_0 then
+					gotSignal = true
+
+					if C.FindNextChangeNotification(dirWatcher.notification) == 0 then
+						ffiWindows_logLastError("FindNextChangeNotification", "directory="..dirWatcher.directory)
+						table.insert(directoryWatcherIndicesToRemove, i)
+						break
+					end
+
+				elseif code == WAIT_TIMEOUT then
+					break
+
+				elseif code == WAIT_FAILED then
+					ffiWindows_logLastError("WaitForSingleObject", "directory="..dirWatcher.directory)
+					break
+
+				else
+					logError("[Windows] Internal error: WaitForSingleObject returned unknown code %d.", code)
+					break
+				end
+			end
+
+			if gotSignal then
+				-- print("gotSignal!", dirWatcher.directory) -- DEBUG
+
+				-- @Incomplete: Use ReadDirectoryChangesW() instead of FindFirstChangeNotificationW().
+				-- https://qualapps.blogspot.com/2010/05/understanding-readdirectorychangesw.html
+				for _, watcher in ipairs(watchedModules) do
+					if watcher.watchedDirectory == dirWatcher.directory then  watcher.watchedDirectoryChanged = true  end
+				end
+				for _, watcher in ipairs(watchedResources) do
+					if watcher.watchedDirectory == dirWatcher.directory then  watcher.watchedDirectoryChanged = true  end
+				end
+			end
+		end--for ffiWindows_watchedDirectories
+
+		for i = #directoryWatcherIndicesToRemove, 1, -1 do
+			local dirWatcher                   = ffiWindows_watchedDirectories[directoryWatcherIndicesToRemove[i]]
+			directoryWatcherIndicesToRemove[i] = nil
+
+			ffiWindows_unwatchDirectory(dirWatcher)
+
+			-- Relevant watchers fall back to normal checks.
+			for _, watcher in ipairs(watchedModules) do
+				if watcher.watchedDirectory == dirWatcher.directory then  watcher.watchedDirectory = nil  end -- Note: We leave watcher.watchedDirectoryChanged as-is.
+			end
+			for _, watcher in ipairs(watchedResources) do
+				if watcher.watchedDirectory == dirWatcher.directory then  watcher.watchedDirectory = nil  end -- Note: We leave watcher.watchedDirectoryChanged as-is.
+			end
+		end
+	end
+
+	--
+	-- Check files.
+	--
+	if ffiWindows then
+		for _, watcher in ipairs(watchedModules) do
+			if watcher.watchedDirectoryChanged and ffiWindows_isWritable(watcher.fullPath) then
+				watcher.watchedDirectoryChanged = false
+				reloadModuleIfModTimeChanged(watcher)
+			end
+		end
+		for _, watcher in ipairs(watchedResources) do
+			if watcher.watchedDirectoryChanged and ffiWindows_isWritable(watcher.fullPath) then
+				watcher.watchedDirectoryChanged = false
+				reloadResourceIfModTimeChanged(watcher)
+			end
+		end
+	end
+
 	while pathsToCheck > 0 and not stateHasBeenReset do
 		pathsToCheck     = pathsToCheck - 1
 		time             = time - timeBetweenChecks
 		lastCheckedIndex = math.min(lastCheckedIndex, pathCount) % pathCount + 1
 
-		-- Check next module.
 		if lastCheckedIndex <= moduleCount then
 			local watcher = watchedModules[lastCheckedIndex]
-			local modTime = getLastModifiedTime(watcher.path)
-
-			if modTime ~= watcher.modified then
-				hotLoader.log("Reloading module: %s", watcher.id)
-
-				local module = loadModule(watcher.id, true)
-				if module == nil then
-					hotLoader.log("Failed reloading module: %s", watcher.id)
-				else
-					watcher.value = module
-					hotLoader.log("Reloaded module: %s", watcher.id)
-				end
-
-				watcher.modified = modTime -- Set this even if loading failed. We don't want to keep loading a corrupt file, for example.
+			if not (watcher.watchedDirectory or watcher.watchedDirectoryChanged) then
+				reloadModuleIfModTimeChanged(watcher)
 			end
-
-		-- Check next resource.
 		else
 			local watcher = watchedResources[lastCheckedIndex - moduleCount]
-			local modTime = getLastModifiedTime(watcher.path)
-
-			if modTime ~= watcher.modified then
-				hotLoader.log("Reloading resource: %s", watcher.id)
-
-				local res = loadResource(watcher.path, true)
-				if res == nil then
-					hotLoader.log("Failed reloading resource: %s", watcher.id)
-				else
-					watcher.value = res
-					hotLoader.log("Reloaded resource: %s", watcher.id)
-				end
-
-				watcher.modified = modTime -- Set this even if loading failed. We don't want to keep loading a corrupt file, for example.
+			if not (watcher.watchedDirectory or watcher.watchedDirectoryChanged) then
+				reloadResourceIfModTimeChanged(watcher)
 			end
 		end
 	end
@@ -552,21 +975,21 @@ end
 
 -- Set or remove a loader for a file extension.
 -- setLoader( fileExtension, [ fileExtension2..., ] loader|nil )
--- loader: function( fileContents, filePath )
+-- loader: function( fileContents, path )
 function hotLoader.setLoader(...)
 	local argCount = math.max(select("#", ...), 1)
 	local loader   = select(argCount, ...)
 
 	if not (type(loader) == "function" or loader == nil) then
-		error("Bad argument #"..argCount.." (loader) to 'setLoader'. (Expected function, got "..type(loader)..")", 2)
+		errorf(2, "Bad argument #%d (loader) to 'setLoader'. (Expected function, got %s)", argCount, type(loader))
 	elseif argCount == 1 then
-		error("No file extension specified.", 2)
+		errorf(2, "No file extension specified.")
 	end
 
 	for i = 1, argCount-1 do
 		local fileExt = select(i, ...)
 		if type(fileExt) ~= "string" then
-			error("Bad argument #"..i.." (fileExtension) to 'setLoader'. (Expected string, got "..type(fileExt)..")", 2)
+			errorf(2, "Bad argument #%d (fileExtension) to 'setLoader'. (Expected string, got %s)", i, type(fileExt))
 		end
 		loaders[fileExt] = loader
 	end
@@ -577,30 +1000,30 @@ function hotLoader.removeAllLoaders()
 	loaders = {}
 end
 
--- loader = getCustomLoader( filePath )
-function hotLoader.getCustomLoader(filePath)
-	return customLoaders[filePath]
+-- loader|nil = getCustomLoader( path )
+function hotLoader.getCustomLoader(path)
+	return customLoaders[path]
 end
 
 -- Set or remove a loader for a specific file path.
--- setCustomLoader( filePath, [ filePath2..., ] loader|nil )
--- loader: function( fileContents, filePath )
+-- setCustomLoader( path, [ path2..., ] loader|nil )
+-- loader: function( fileContents, path )
 function hotLoader.setCustomLoader(...)
 	local argCount = math.max(select("#", ...), 1)
 	local loader   = select(argCount, ...)
 
 	if not (type(loader) == "function" or loader == nil) then
-		error("Bad argument #"..argCount.." (loader) to 'setCustomLoader'. (Expected function, got "..type(loader)..")", 2)
+		errorf(2, "Bad argument #%d (loader) to 'setCustomLoader'. (Expected function, got %s)", argCount, type(loader))
 	elseif argCount == 1 then
-		error("No file path specified.", 2)
+		errorf(2, "No file path specified.")
 	end
 
 	for i = 1, argCount-1 do
-		local filePath = select(i, ...)
-		if type(filePath) ~= "string" then
-			error("Bad argument #"..i.." (filePath) to 'setCustomLoader'. (Expected string, got "..type(filePath)..")", 2)
+		local path = select(i, ...)
+		if type(path) ~= "string" then
+			errorf(2, "Bad argument #%d (path) to 'setCustomLoader'. (Expected string, got %s)", i, type(path))
 		end
-		customLoaders[filePath] = loader
+		customLoaders[path] = loader
 	end
 end
 
@@ -609,16 +1032,16 @@ function hotLoader.removeAllCustomLoaders()
 	customLoaders = {}
 end
 
--- loader = getDefaultLoader( )
+-- loader|nil = getDefaultLoader( )
 function hotLoader.getDefaultLoader()
 	return defaultLoader
 end
 
--- setDefaultLoader( loader )
+-- setDefaultLoader( loader|nil )
 -- loader: Specify nil to restore original default loader (which loads the file as a plain string).
 function hotLoader.setDefaultLoader(loader)
 	if not (type(loader) == "function" or loader == nil) then
-		error("Bad argument #1 (loader) to 'setDefaultLoader'. (Expected function, got "..type(loader)..")", 2)
+		errorf(2, "Bad argument #1 (loader) to 'setDefaultLoader'. (Expected function, got %s)", type(loader))
 	end
 	defaultLoader = loader
 end
@@ -630,60 +1053,60 @@ end
 
 
 
--- resource, errorMessage = load( filePath [, protectedLoad=false ] [, customLoader ] )
+-- resource, errorMessage = load( path [, protectedLoad=false ] [, customLoader ] )
 -- protected: If true then errors are returned, otherwise errors are raised.
--- customLoader: If set, replaces the previous custom loader for filePath.
-function hotLoader.load(filePath, protected, loader)
+-- customLoader: If set, replaces the previous custom loader for path.
+function hotLoader.load(path, protected, loader)
 	if type(protected) == "function" then
 		protected, loader = false, protected
 	end
 
 	if loader then
-		hotLoader.setCustomLoader(filePath, loader)
+		hotLoader.setCustomLoader(path, loader)
 	end
 
-	local watcher = watchedResources[filePath]
+	local watcher = watchedResources[path]
 
 	if not watcher then
-		local res, err = loadResource(filePath, protected)
+		local res, err = loadResource(path, protected)
 		if not res then  return nil, err  end
 
-		watcher = createAndRegisterWatcher(watchedResources, filePath, filePath, res)
+		watcher = createAndRegisterWatcher(2, watchedResources, path, path, res)
 	end
 
 	return watcher.value
 end
 
 -- Forces the resource to reload at next load call.
--- unload( filePath )
-function hotLoader.unload(filePath)
-	unregisterWatcher(watchedResources, watchedResources[filePath])
+-- unload( path )
+function hotLoader.unload(path)
+	unregisterWatcher(watchedResources, watchedResources[path])
 end
 
--- preload( filePath, resource [, customLoader ] )
-function hotLoader.preload(filePath, res, loader)
+-- preload( path, resource [, customLoader ] )
+function hotLoader.preload(path, res, loader)
 	if not res then
-		hotLoader.log("ERROR: The resource must not be nil or false. (Maybe you meant to use hotLoader.unload()?)")
+		logError("The resource must not be nil or false. (Maybe you meant to use hotLoader.unload()?)")
 		return
 	end
 
 	if loader then
-		hotLoader.setCustomLoader(filePath, loader)
+		hotLoader.setCustomLoader(path, loader)
 	end
 
-	local watcher = watchedResources[filePath]
+	local watcher = watchedResources[path]
 
 	if watcher then
 		watcher.value    = res
-		watcher.modified = getLastModifiedTime(filePath) -- May be unnecessary in most cases, but we should seldom reach this line anyway.
+		watcher.modified = getLastModifiedTime(path) -- May be unnecessary in most cases, but we should seldom reach this line anyway.
 	else
-		createAndRegisterWatcher(watchedResources, filePath, filePath, res)
+		createAndRegisterWatcher(2, watchedResources, path, path, res)
 	end
 end
 
--- bool = hasLoaded( filePath )
-function hotLoader.hasLoaded(filePath)
-	return watchedResources[filePath] ~= nil
+-- bool = hasLoaded( path )
+function hotLoader.hasLoaded(path)
+	return watchedResources[path] ~= nil
 end
 
 
@@ -694,7 +1117,7 @@ end
 function hotLoader.require(moduleName)
 	local watcher = (
 		watchedModules[moduleName]
-		or createAndRegisterWatcher(watchedModules, moduleName, getModuleFilePath(moduleName), loadModule(moduleName, false))
+		or createAndRegisterWatcher(2, watchedModules, moduleName, getModuleFilePath(moduleName), loadModule(moduleName, false))
 	)
 	return watcher.value
 end
@@ -708,7 +1131,7 @@ end
 -- prerequire( moduleName, module )
 function hotLoader.prerequire(moduleName, module)
 	if module == nil then
-		hotLoader.log("ERROR: The module must not be nil. (Maybe you meant to use hotLoader.unrequire()?)")
+		logError("The module must not be nil. (Maybe you meant to use hotLoader.unrequire()?)")
 		return
 	end
 
@@ -718,7 +1141,7 @@ function hotLoader.prerequire(moduleName, module)
 		watcher.value    = module
 		watcher.modified = getModuleLastModifiedTime(moduleName) -- May be unnecessary in most cases, but we should seldom reach this line anyway.
 	else
-		createAndRegisterWatcher(watchedModules, moduleName, getModuleFilePath(moduleName), module)
+		createAndRegisterWatcher(2, watchedModules, moduleName, getModuleFilePath(moduleName), module)
 	end
 end
 
@@ -775,13 +1198,23 @@ function hotLoader.setLogFormat(s)
 		if     c == "d" then  hasD = true
 		elseif c == "m" then  hasM = true
 		elseif c == "t" then  hasT = true
-		elseif c ~= "%" then  error("Invalid option '%"..c.."'. (Valid options are %d, %m and %t)", 2)  end
+		elseif c ~= "%" then  errorf(2, "Invalid option '%%%s'. (Valid options are %%d, %%m and %%t)", c)  end
 	end
 
 	logFormat     = s
 	logFormatHasD = hasD
 	logFormatHasM = hasM
 	logFormatHasT = hasT
+end
+
+
+
+-- Free up allocated OS resources. Calling this is only necessary if the library
+-- module is unloaded (which probably no one does - only our test suite), and
+-- currently only in LuaJIT (including LÖVE) on Windows. @Undocumented
+function hotLoader.cleanup()
+	for i = #watchedModules  , 1, -1 do  unregisterWatcher(watchedModules  , watchedModules  [i])  end
+	for i = #watchedResources, 1, -1 do  unregisterWatcher(watchedResources, watchedResources[i])  end
 end
 
 
@@ -825,14 +1258,14 @@ if love and love.audio then
 	hotLoader.setLoader(
 		"wav",
 		"ogg","oga","ogv",
-		function(filePath)  return (love.audio.newSource(filePath, "static"))  end
+		function(path)  return (love.audio.newSource(path, "static"))  end
 	)
 	hotLoader.setLoader(
 		"mp3",
 		"699","amf","ams","dbm","dmf","dsm","far","it","j2b","mdl","med",
 			"mod","mt2","mtm","okt","psm","s3m","stm","ult","umx","xm",
 		"abc","mid","pat",
-		function(filePath)  return (love.audio.newSource(filePath, "stream"))  end
+		function(path)  return (love.audio.newSource(path, "stream"))  end
 	)
 end
 

@@ -8,7 +8,7 @@
 io.stdout:setvbuf("no")
 io.stderr:setvbuf("no")
 
--- Monkeypatch file system API before loading library.
+-- Monkeypatch modules before loading library.
 local lfs         = not love and require"lfs"
 local fakeModTime = 1
 
@@ -48,6 +48,11 @@ else
 		return unpack(values, 1, values.n)
 	end
 end
+
+local jit = jit
+_G.jit    = nil -- Don't let the library know about LuaJIT+FFI!
+
+-- local function assert(...)  return ...  end -- DEBUG
 
 -- Prepare loading of library.
 local thisDir        = love and love.filesystem.getSource().."/" or debug.getinfo(1, "S").source:match"^@(.+)":gsub("[^/\\]+$", "")
