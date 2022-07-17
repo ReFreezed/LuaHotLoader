@@ -167,6 +167,13 @@ local stateHasBeenReset = false
 
 
 
+local DIRECTORY_SEPARATOR, TEMPLATE_SEPARATOR, SUBSTITUTION_POINT = package.config:match"^(%C)\n(%C)\n(%C)\n" -- Hopefully each line has a single character!
+DIRECTORY_SEPARATOR = DIRECTORY_SEPARATOR or "/"
+TEMPLATE_SEPARATOR  = TEMPLATE_SEPARATOR  or ";"
+SUBSTITUTION_POINT  = SUBSTITUTION_POINT  or "?"
+
+
+
 --==============================================================
 --= Local Functions ============================================
 --==============================================================
@@ -198,8 +205,12 @@ end
 
 
 
+local function normalizePath(path)
+	return (path:gsub("\\", "/"))
+end
+
 local function isPathAbsolute(path)
-	return (path:find"^[/\\]" or path:find"^%a:") ~= nil
+	return (path:find"^~?/" or path:find"^%a:") ~= nil
 end
 
 
@@ -228,7 +239,7 @@ local function fileExists(path)
 		end
 	end
 
-	local file = io.open(path, "r")
+	local file = io.open(path, "rb")
 	if not file then  return false  end
 
 	file:close()
@@ -247,8 +258,9 @@ local getCurrentClock
 
 
 
--- contents, errorMessage = getFileContents( path )
-local function getFileContents(path)
+-- contents = readFile( path )
+-- Returns nil and a message on error.
+local function readFile(path)
 	if isLovePath(path) then
 		return love.filesystem.read(path)
 	end
@@ -262,7 +274,8 @@ local function getFileContents(path)
 	return contents
 end
 
--- chunk, errorMessage = loadLuaFile( path )
+-- chunk = loadLuaFile( path )
+-- Returns nil and a message on error.
 local loadLuaFile = love and love.filesystem.load or loadfile
 
 
@@ -270,9 +283,11 @@ local loadLuaFile = love and love.filesystem.load or loadfile
 -- templates = getRequirePath( )
 -- templates = "template1;..."
 local getRequirePath
-	= love and love.filesystem.getRequirePath
+	= love and function()
+		return normalizePath(love.filesystem.getRequirePath())
+	end
 	or function()
-		return package.path
+		return normalizePath(package.path)
 	end
 
 
@@ -286,16 +301,11 @@ end
 -- path = getModuleFilePath( moduleName )
 local getModuleFilePath
 do
-	local dirSep, tempSep, subPoint = package.config:match"^(%C)\n(%C)\n(%C)\n" -- Hopefully each line has a single character!
-	dirSep   = dirSep   or "/"
-	tempSep  = tempSep  or ";"
-	subPoint = subPoint or "?"
-
-	local TEMPLATE_PATTERN           = "[^" .. escapePattern(tempSep) .. "]+"
-	local SUBSTITUTION_POINT_PATTERN = escapePattern(subPoint)
+	local TEMPLATE_PATTERN           = "[^" .. escapePattern(TEMPLATE_SEPARATOR) .. "]+"
+	local SUBSTITUTION_POINT_PATTERN = escapePattern(SUBSTITUTION_POINT)
 
 	local modulePaths             = {--[[ [moduleName1]=path, ... ]]}
-	local moduleNameModifications = {["."]=dirSep:gsub("%%", "%%%%"), ["%"]="%%%%"}
+	local moduleNameModifications = {["."]="/", ["%"]="%%%%"}
 
 	--[[local]] function getModuleFilePath(moduleName)
 		local path = modulePaths[moduleName]
@@ -319,7 +329,8 @@ end
 
 
 
--- time, errorMessage = getLastModifiedTime( path )
+-- time = getLastModifiedTime( path )
+-- Returns nil and a message on error.
 local fakeModifiedTimes = {}
 local fileSizes         = {}
 
@@ -345,7 +356,7 @@ local getLastModifiedTime
 		-- If the size changed then we generate a fake modification time.
 		-- @Incomplete: Do this if neither LÖVE nor LuaFileSystem is available.
 
-		local file, err = io.open(path, "r")
+		local file, err = io.open(path, "rb")
 		if not file then
 			fakeModifiedTimes[path] = nil
 			return nil, "Could not determine file modification time."
@@ -373,7 +384,8 @@ local getLastModifiedTime
 		return require"lfs".attributes(path, "modification")
 	end
 
--- time, errorMessage = getModuleLastModifiedTime( moduleName )
+-- time = getModuleLastModifiedTime( moduleName )
+-- Returns nil and a message on error.
 local function getModuleLastModifiedTime(moduleName)
 	return getLastModifiedTime(getModuleFilePath(moduleName))
 end
@@ -403,14 +415,14 @@ end
 
 
 
--- resource, errorMessage = loadResource( path, protected )
--- protected: If true then errors are returned, otherwise errors are raised.
+-- resource = loadResource( path, protected )
+-- Returns nil and a message on error (if protected is true, otherwise errors are raised).
 local function loadResource(path, protected)
 	local loader
 		=  customLoaders[path]
-		or loaders[path:match"%.([^.]+)$"]
+		or loaders[(path:match"%.([^.]+)$" or ""):lower()]
 		or defaultLoader
-		or getFileContents
+		or readFile
 
 	local res
 
@@ -734,17 +746,17 @@ local function createAndRegisterWatcher(level, watchers, id, path, value)
 			if not baseDir then
 				errorf(1+level, "Could not get base directory for file '%s'. (%s)", path, err)
 			end
-			watcher.fullPath = baseDir .. "/" .. path -- @Polish: Use OS-specific separator.
+			watcher.fullPath = baseDir .. "/" .. path
 
 		elseif isPathAbsolute(path) then
 			watcher.fullPath = path
 
 		else
-			watcher.fullPath = (love and love.filesystem.getWorkingDirectory() or assert(require"lfs".currentdir())) .. "/" .. path -- @Polish: Use OS-specific separator.
+			watcher.fullPath = (love and love.filesystem.getWorkingDirectory() or assert(require"lfs".currentdir())) .. "/" .. path
 		end
 
-		local dir = watcher.fullPath:gsub("[/\\][^/\\]+$", "")
-		if dir == "" then  dir = "/"  end -- @Polish: Use OS-specific separator.
+		local dir = watcher.fullPath:gsub("/[^/]+$", "")
+		if dir == "" then  dir = "/"  end
 		assert(dir ~= watcher.fullPath, dir)
 
 		local dirWatcher = ffiWindows_watchedDirectories[dir]
@@ -970,12 +982,12 @@ end
 
 -- loader = getLoader( fileExtension )
 function hotLoader.getLoader(fileExt)
-	return loaders[fileExt]
+	return loaders[fileExt:lower()]
 end
 
--- Set or remove a loader for a file extension.
 -- setLoader( fileExtension, [ fileExtension2..., ] loader|nil )
--- loader: function( fileContents, path )
+-- resource = loader( path )
+-- Set or remove a loader for a file extension.
 function hotLoader.setLoader(...)
 	local argCount = math.max(select("#", ...), 1)
 	local loader   = select(argCount, ...)
@@ -991,7 +1003,7 @@ function hotLoader.setLoader(...)
 		if type(fileExt) ~= "string" then
 			errorf(2, "Bad argument #%d (fileExtension) to 'setLoader'. (Expected string, got %s)", i, type(fileExt))
 		end
-		loaders[fileExt] = loader
+		loaders[fileExt:lower()] = loader
 	end
 end
 
@@ -1002,12 +1014,12 @@ end
 
 -- loader|nil = getCustomLoader( path )
 function hotLoader.getCustomLoader(path)
-	return customLoaders[path]
+	return customLoaders[normalizePath(path)]
 end
 
--- Set or remove a loader for a specific file path.
 -- setCustomLoader( path, [ path2..., ] loader|nil )
--- loader: function( fileContents, path )
+-- resource = loader( path )
+-- Set or remove a loader for a specific file path.
 function hotLoader.setCustomLoader(...)
 	local argCount = math.max(select("#", ...), 1)
 	local loader   = select(argCount, ...)
@@ -1023,7 +1035,7 @@ function hotLoader.setCustomLoader(...)
 		if type(path) ~= "string" then
 			errorf(2, "Bad argument #%d (path) to 'setCustomLoader'. (Expected string, got %s)", i, type(path))
 		end
-		customLoaders[path] = loader
+		customLoaders[normalizePath(path)] = loader
 	end
 end
 
@@ -1053,13 +1065,15 @@ end
 
 
 
--- resource, errorMessage = load( path [, protectedLoad=false ] [, customLoader ] )
--- protected: If true then errors are returned, otherwise errors are raised.
+-- resource = load( path [, protectedLoad=false ] [, customLoader ] )
+-- Returns nil and a message on error (if protected is true, otherwise errors are raised).
 -- customLoader: If set, replaces the previous custom loader for path.
 function hotLoader.load(path, protected, loader)
 	if type(protected) == "function" then
 		protected, loader = false, protected
 	end
+
+	path = normalizePath(path)
 
 	if loader then
 		hotLoader.setCustomLoader(path, loader)
@@ -1080,7 +1094,7 @@ end
 -- Forces the resource to reload at next load call.
 -- unload( path )
 function hotLoader.unload(path)
-	unregisterWatcher(watchedResources, watchedResources[path])
+	unregisterWatcher(watchedResources, watchedResources[normalizePath(path)])
 end
 
 -- preload( path, resource [, customLoader ] )
@@ -1089,6 +1103,8 @@ function hotLoader.preload(path, res, loader)
 		logError("The resource must not be nil or false. (Maybe you meant to use hotLoader.unload()?)")
 		return
 	end
+
+	path = normalizePath(path)
 
 	if loader then
 		hotLoader.setCustomLoader(path, loader)
@@ -1106,7 +1122,7 @@ end
 
 -- bool = hasLoaded( path )
 function hotLoader.hasLoaded(path)
-	return watchedResources[path] ~= nil
+	return watchedResources[normalizePath(path)] ~= nil
 end
 
 
