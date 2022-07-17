@@ -5,7 +5,8 @@
 <!-- ![https://img.shields.io/github/release/ReFreezed/LuaPreprocess.svg](https://github.com/ReFreezed/LuaPreprocess/releases/latest) -->
 <!-- ![https://img.shields.io/github/license/ReFreezed/LuaPreprocess.svg](LICENSE.txt) -->
 
-Hot-load any file, including Lua files. Works with *LuaFileSystem* or [*LÖVE*](https://love2d.org/) (including 11.0 and 0.10).
+Hot-load any file, including Lua modules.
+Works with *LuaFileSystem* or [*LÖVE*](https://love2d.org/) (including 11.0 and 0.10).
 
 - [Usage with LuaFileSystem](#usage-with-luafilesystem)
 - [Usage in LÖVE](#usage-in-lÖve)
@@ -101,6 +102,7 @@ hotLoader.hasLoaded()
 hotLoader.hasRequired()
 hotLoader.isAllowingExternalPaths()
 hotLoader.load()
+hotLoader.log()
 hotLoader.preload()
 hotLoader.prerequire()
 hotLoader.removeAllCustomLoaders()

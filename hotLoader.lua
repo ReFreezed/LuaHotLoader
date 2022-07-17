@@ -91,6 +91,7 @@
 	getCheckingInterval
 	setCheckingInterval
 
+	log
 	getLogFormat
 	setLogFormat
 
@@ -180,11 +181,12 @@ SUBSTITUTION_POINT  = SUBSTITUTION_POINT  or "?"
 
 
 
+local function incLevel(level)
+	return (level == 0) and 0 or 1+level
+end
+
 local function errorf(level, s, ...)
-	error(
-		("[HotLoader] "..s):format(...),
-		level == 0 and 0 or 1+level
-	)
+	error(("[HotLoader] "..s):format(...), incLevel(level))
 end
 
 -- logError( message )
@@ -298,17 +300,17 @@ end
 
 
 
--- path = getModuleFilePath( moduleName )
+-- path = getModuleFilePath( level, moduleName )
 local getModuleFilePath
 do
 	local TEMPLATE_PATTERN           = "[^" .. escapePattern(TEMPLATE_SEPARATOR) .. "]+"
 	local SUBSTITUTION_POINT_PATTERN = escapePattern(SUBSTITUTION_POINT)
 
-	local modulePaths             = {--[[ [moduleName1]=path, ... ]]}
+	local modulePathCache         = {--[[ [moduleName1]=path, ... ]]}
 	local moduleNameModifications = {["."]="/", ["%"]="%%%%"}
 
-	--[[local]] function getModuleFilePath(moduleName)
-		local path = modulePaths[moduleName]
+	--[[local]] function getModuleFilePath(level, moduleName)
+		local path = modulePathCache[moduleName]
 		if path then  return path  end
 
 		local moduleNameModified = moduleName:gsub("[.%%]", moduleNameModifications) -- Change e.g. "foo.bar%1" into "foo/bar%%1".
@@ -322,7 +324,7 @@ do
 			end
 		end
 
-		modulePaths[moduleName] = path or errorf(1, "Cannot find module '%s'.", moduleName)
+		modulePathCache[moduleName] = path or errorf(incLevel(level), "Cannot find module '%s'.", moduleName)
 		return path
 	end
 end
@@ -384,40 +386,38 @@ local getLastModifiedTime
 		return require"lfs".attributes(path, "modification")
 	end
 
--- time = getModuleLastModifiedTime( moduleName )
+-- time = getModuleLastModifiedTime( level, moduleName )
 -- Returns nil and a message on error.
-local function getModuleLastModifiedTime(moduleName)
-	return getLastModifiedTime(getModuleFilePath(moduleName))
+local function getModuleLastModifiedTime(level, moduleName)
+	return getLastModifiedTime(getModuleFilePath(incLevel(level), moduleName))
 end
 
 
 
--- module = loadModule( moduleName, protected )
--- protected: If true then nil is returned on error, otherwise errors are raised.
-local function loadModule(moduleName, protected)
+-- module|nil = loadModule( level, moduleName, protectedLoad )
+local function loadModule(level, moduleName, protected)
+	local main_chunk, err = loadLuaFile(getModuleFilePath(incLevel(level), moduleName))
 	local module
 
 	if protected then
-		local ok, chunkOrErr = pcall(loadLuaFile, getModuleFilePath(moduleName))
-		if not ok then
-			logError(chunkOrErr)
-			return nil
-		end
-		module = chunkOrErr()
+		if not main_chunk then  logError(err) ; return nil  end
+
+		local ok, moduleOrErr = pcall(main_chunk, moduleName)
+		if not ok then  logError(tostring(moduleOrErr)) ; return nil  end
+		module = moduleOrErr
 
 	else
-		module = loadLuaFile(getModuleFilePath(moduleName))()
+		if not main_chunk then  error(err, incLevel(level))  end
+		module = main_chunk(moduleName)
 	end
 
 	if module == nil then  module = true  end
 	return module
 end
 
-
-
--- resource = loadResource( path, protected )
--- Returns nil and a message on error (if protected is true, otherwise errors are raised).
-local function loadResource(path, protected)
+-- resource = loadResource( level, path, protectedLoad )
+-- Returns nil and a message on error (if protectedLoad is true, otherwise errors are raised).
+local function loadResource(level, path, protected)
 	local loader
 		=  customLoaders[path]
 		or loaders[(path:match"%.([^.]+)$" or ""):lower()]
@@ -444,7 +444,7 @@ local function loadResource(path, protected)
 	else
 		res = loader(path)
 		if not res then
-			errorf(1, "Loader returned nothing for '%s'.", path)
+			errorf(incLevel(level), "Loader returned nothing for '%s'.", path)
 		end
 	end
 
@@ -744,7 +744,7 @@ local function createAndRegisterWatcher(level, watchers, id, path, value)
 		if isLovePath(path) then
 			local baseDir, err = love.filesystem.getRealDirectory(path) -- Fails when allowPathsOutsideLove is false.
 			if not baseDir then
-				errorf(1+level, "Could not get base directory for file '%s'. (%s)", path, err)
+				errorf(incLevel(level), "Could not get base directory for file '%s'. (%s)", path, err)
 			end
 			watcher.fullPath = baseDir .. "/" .. path
 
@@ -816,7 +816,7 @@ local function reloadModuleIfModTimeChanged(watcher)
 	if modTime == watcher.modified then  return  end
 
 	hotLoader.log("Reloading module: %s", watcher.id)
-	local module = loadModule(watcher.id, true)
+	local module = loadModule(1, watcher.id, true)
 
 	if    module == nil
 	then  hotLoader.log("Failed reloading module: %s", watcher.id)
@@ -825,12 +825,12 @@ local function reloadModuleIfModTimeChanged(watcher)
 	watcher.modified = modTime -- Set this even if loading failed. We don't want to keep loading a corrupt file, for example.
 end
 
-local function reloadResourceIfModTimeChanged(watcher)
+local function reloadResourceIfModTimeChanged(level, watcher)
 	local modTime = getLastModifiedTime(watcher.path)
 	if modTime == watcher.modified then  return  end
 
 	hotLoader.log("Reloading resource: %s", watcher.id)
-	local res = loadResource(watcher.id, true)
+	local res = loadResource(incLevel(level), watcher.id, true)
 
 	if    not res
 	then  hotLoader.log("Failed reloading resource: %s", watcher.id)
@@ -938,7 +938,7 @@ function hotLoader.update(dt)
 		for _, watcher in ipairs(watchedResources) do
 			if watcher.watchedDirectoryChanged and ffiWindows_isWritable(watcher.fullPath) then
 				watcher.watchedDirectoryChanged = false
-				reloadResourceIfModTimeChanged(watcher)
+				reloadResourceIfModTimeChanged(0, watcher)
 			end
 		end
 	end
@@ -956,7 +956,7 @@ function hotLoader.update(dt)
 		else
 			local watcher = watchedResources[lastCheckedIndex - moduleCount]
 			if not (watcher.watchedDirectory or watcher.watchedDirectoryChanged) then
-				reloadResourceIfModTimeChanged(watcher)
+				reloadResourceIfModTimeChanged(0, watcher)
 			end
 		end
 	end
@@ -1066,7 +1066,7 @@ end
 
 
 -- resource = load( path [, protectedLoad=false ] [, customLoader ] )
--- Returns nil and a message on error (if protected is true, otherwise errors are raised).
+-- Returns nil and a message on error (if protectedLoad is true, otherwise errors are raised).
 -- customLoader: If set, replaces the previous custom loader for path.
 function hotLoader.load(path, protected, loader)
 	if type(protected) == "function" then
@@ -1082,7 +1082,7 @@ function hotLoader.load(path, protected, loader)
 	local watcher = watchedResources[path]
 
 	if not watcher then
-		local res, err = loadResource(path, protected)
+		local res, err = loadResource(2, path, protected)
 		if not res then  return nil, err  end
 
 		watcher = createAndRegisterWatcher(2, watchedResources, path, path, res)
@@ -1133,7 +1133,7 @@ end
 function hotLoader.require(moduleName)
 	local watcher = (
 		watchedModules[moduleName]
-		or createAndRegisterWatcher(2, watchedModules, moduleName, getModuleFilePath(moduleName), loadModule(moduleName, false))
+		or createAndRegisterWatcher(2, watchedModules, moduleName, getModuleFilePath(2, moduleName), loadModule(2, moduleName, false))
 	)
 	return watcher.value
 end
@@ -1155,9 +1155,9 @@ function hotLoader.prerequire(moduleName, module)
 
 	if watcher then
 		watcher.value    = module
-		watcher.modified = getModuleLastModifiedTime(moduleName) -- May be unnecessary in most cases, but we should seldom reach this line anyway.
+		watcher.modified = getModuleLastModifiedTime(2, moduleName) -- May be unnecessary in most cases, but we should seldom reach this line anyway.
 	else
-		createAndRegisterWatcher(2, watchedModules, moduleName, getModuleFilePath(moduleName), module)
+		createAndRegisterWatcher(2, watchedModules, moduleName, getModuleFilePath(2, moduleName), module)
 	end
 end
 
@@ -1183,7 +1183,7 @@ end
 
 
 
--- Make hotLoader start over and check the first monitored file next time hotLoader.update() is called.
+-- Make the library start over and check the first monitored file next time hotLoader.update() is called.
 -- The current update is aborted if this is called from within a loader.
 -- resetCheckingState( )
 function hotLoader.resetCheckingState()
@@ -1194,7 +1194,7 @@ end
 
 
 
-function hotLoader.getLogFormat(s)
+function hotLoader.getLogFormat()
 	return logFormat
 end
 
@@ -1235,12 +1235,8 @@ end
 
 
 
---==============================================================
-
-
-
--- To silence hotLoader you can do hotLoader.log=function()end
--- log( formatString, value1, ... )
+-- Internal function for printing messages.
+-- To silence the library you can do hotLoader.log=function()end
 function hotLoader.log(s, ...)
 	s             = s:format(...)
 	local dateStr = logFormatHasD and os.date"%Y-%m-%d"
