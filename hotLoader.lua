@@ -1,6 +1,6 @@
 --[[============================================================
 --=
---=  LuaHotLoader v1.2-dev - file hot-loading library
+--=  LuaHotLoader v1.3 - file hot-loading library
 --=  by Marcus 'ReFreezed' Thunström
 --=
 --=  License: MIT (see below)
@@ -104,8 +104,8 @@
 
 
 local hotLoader = {
-	_VERSION     = "LuaHotLoader 1.2.0-dev",
-	_DESCRIPTION = "File hot-loading library",
+	_VERSION     = "LuaHotLoader 1.3.0",
+	_DESCRIPTION = "File hot-loading library.",
 	_URL         = "http://refreezed.com/luahotloader/",
 	_LICENSE     = [[
 		MIT License
@@ -277,7 +277,14 @@ end
 
 -- chunk = loadLuaFile( path )
 -- Returns nil and a message on error.
-local loadLuaFile = love and love.filesystem.load or loadfile
+local loadLuaFile
+	= love and function(path)
+		local ok, chunkOrErr1, err2 = pcall(love.filesystem.load, path) -- LÖVE, you're drunk.
+		if not ok          then  return nil, chunkOrErr1  end
+		if not chunkOrErr1 then  return nil, err2         end
+		return chunkOrErr1
+	end
+	or loadfile
 
 
 
@@ -397,12 +404,26 @@ local function loadModule(level, moduleName, protected)
 	local main_chunk, err = loadLuaFile(getModuleFilePath(incLevel(level), moduleName))
 	local module
 
-	if protected then
-		if not main_chunk then  logError(err) ; return nil  end
+	if not main_chunk then
+		err = err:gsub("\n$", "")
+	end
 
-		local ok, moduleOrErr = pcall(main_chunk, moduleName)
-		if not ok then  logError(tostring(moduleOrErr)) ; return nil  end
-		module = moduleOrErr
+	if protected then
+		if not main_chunk then
+			io.stderr:write(err, "\n")
+			return nil
+		end
+
+		if not xpcall(
+			function()
+				module = main_chunk(moduleName)
+			end,
+			function(err)
+				io.stderr:write(debug.traceback(tostring(err), 2), "\n")
+			end
+		) then
+			return nil
+		end
 
 	else
 		if not main_chunk then  error(err, incLevel(level))  end
