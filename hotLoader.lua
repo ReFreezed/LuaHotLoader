@@ -1283,20 +1283,23 @@ if love and love.graphics then
 	hotLoader.setLoader(
 		"jpg","jpeg",
 		"png",
+		"bmp",
 		"tga",
+		"hdr","pic",
+		"exr",
 		love.graphics.newImage
 	)
 end
 if love and love.audio then
 	hotLoader.setLoader(
 		"wav",
-		"ogg","oga","ogv",
+		"ogg","oga",
 		function(path)  return (love.audio.newSource(path, "static"))  end
 	)
 	hotLoader.setLoader(
 		"mp3",
-		"699","amf","ams","dbm","dmf","dsm","far","it","j2b","mdl","med",
-			"mod","mt2","mtm","okt","psm","s3m","stm","ult","umx","xm",
+		"flac",
+		"699","amf","ams","dbm","dmf","dsm","far","it","j2b","mdl","med","mod","mt2","mtm","okt","psm","s3m","stm","ult","umx","xm",
 		"abc","mid","pat",
 		function(path)  return (love.audio.newSource(path, "stream"))  end
 	)
