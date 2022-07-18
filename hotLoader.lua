@@ -4,11 +4,37 @@
 --=  by Marcus 'ReFreezed' Thunström
 --=
 --=  License: MIT (see below)
+--=  Website: http://refreezed.com/luahotloader/
+--=  Documentation: http://refreezed.com/luahotloader/docs/
 --=
 --=  Dependencies: Either LuaFileSystem or LÖVE 0.10+
 --=
 --==============================================================
 
+	API:
+
+	load,    unload,    preload,    hasLoaded
+	require, unrequire, prerequire, hasRequired
+	monitor
+
+	setLoader,        getLoader,        removeAllLoaders
+	setCustomLoader,  getCustomLoader,  removeAllCustomLoaders
+	setDefaultLoader, getDefaultLoader, disableDefaultLoader
+
+	update
+	resetCheckingState
+
+	setCheckingInterval
+	getCheckingInterval
+
+	allowExternalPaths
+	isAllowingExternalPaths
+
+	setLogFormat
+	getLogFormat
+	log
+
+----------------------------------------------------------------
 
 
 	-- Usage with LuaFileSystem:
@@ -16,16 +42,13 @@
 	local hotLoader     = require("hotLoader")
 	local duckImagePath = "duck.jpg"
 
-	-- Initial loading of resources (optional).
-	hotLoader.load(duckImagePath)
-
 	-- Program loop.
 	local lastTime = os.clock()
 
 	while true do
 		local currentTime = os.clock()
 
-		-- Allow hotLoader to reload module and resource files that have been updated.
+		-- Allow the library to reload module and resource files that have been updated.
 		hotLoader.update(currentTime-lastTime)
 
 		-- Show if debug mode is enabled.
@@ -42,7 +65,6 @@
 	end
 
 
-
 	-- Usage in LÖVE:
 
 	local hotLoader = require("hotLoader")
@@ -52,18 +74,15 @@
 	}
 
 	function love.load()
-		-- Tell hotLoader to load .png files using love.graphics.newImage().
+		-- Tell the library to load .png files using love.graphics.newImage().
 		hotLoader.setLoader("png", love.graphics.newImage)
 
-		-- Note: hotLoader automatically adds common loaders in LÖVE, including
+		-- Note: The library automatically adds common loaders in LÖVE, including
 		-- for .png files. You can call hotLoader.removeAllLoaders() to undo this.
-
-		-- Do the initial loading of resources (optional).
-		hotLoader.load(player.imagePath)
 	end
 
 	function love.update(dt)
-		-- Allow hotLoader to reload module and resource files that have been updated.
+		-- Allow the library to reload module and resource files that have been updated.
 		hotLoader.update(dt)
 	end
 
@@ -80,31 +99,6 @@
 	end
 
 
-
---==============================================================
-
-	API:
-
-	allowExternalPaths
-	isAllowingExternalPaths
-
-	getCheckingInterval
-	setCheckingInterval
-
-	log
-	getLogFormat
-	setLogFormat
-
-	getLoader,        setLoader,        removeAllLoaders
-	getCustomLoader,  setCustomLoader,  removeAllCustomLoaders
-	getDefaultLoader, setDefaultLoader, disableDefaultLoader
-
-	load,    unload,    preload,    hasLoaded
-	require, unrequire, prerequire, hasRequired
-
-	update
-	resetCheckingState
-
 --============================================================]]
 
 
@@ -112,7 +106,7 @@
 local hotLoader = {
 	_VERSION     = "LuaHotLoader 1.2.0-dev",
 	_DESCRIPTION = "File hot-loading library",
-	_URL         = "https://github.com/ReFreezed/LuaHotLoader",
+	_URL         = "http://refreezed.com/luahotloader/",
 	_LICENSE     = [[
 		MIT License
 
@@ -205,6 +199,22 @@ local function logWarning(s, ...)
 	else  hotLoader.log("Warning: %s", s)  end
 end
 
+-- assertarg( argumentNumber, argumentName, value, expectedValueType1, ... )
+local function assertarg(argN, argName, v, ...)
+	local vType = type(v)
+
+	for i = 1, select("#", ...) do
+		if vType == select(i, ...) then  return  end
+	end
+
+	local fName   = debug.getinfo(2, "n").name
+	local expects = table.concat({...}, " or ")
+
+	if fName == "" then  fName = "?"  end
+
+	errorf(3, "Bad argument #%d (%s) to '%s'. (Expected %s, got %s)", argN, argName, fName, expects, vType)
+end
+
 
 
 local function normalizePath(path)
@@ -231,7 +241,6 @@ local isLovePath
 
 local love_getFileInfo = love and love.filesystem.getInfo
 
--- bool = fileExists( path )
 local function fileExists(path)
 	if isLovePath(path) then
 		if love_getFileInfo then
@@ -247,16 +256,6 @@ local function fileExists(path)
 	file:close()
 	return true
 end
-
-
-
--- time = getCurrentClock( )
--- Warning: os.clock() isn't guaranteed to be in seconds.
-local getCurrentClock
-	= love and function()
-		return love.timer and love.timer.getTime() or os.clock()
-	end
-	or os.clock
 
 
 
@@ -331,13 +330,12 @@ end
 
 
 
--- time = getLastModifiedTime( path )
--- Returns nil and a message on error.
 local fakeModifiedTimes = {}
 local fileSizes         = {}
 
+-- time = getLastModifiedTime( path )
+-- Returns nil and a message on error.
 local getLastModifiedTime
-
 	= love and function(path)
 		if isLovePath(path) then
 			if love_getFileInfo then
@@ -376,7 +374,7 @@ local getLastModifiedTime
 
 		fileSizes[path] = fileSize
 
-		time = os.time()--getCurrentClock()
+		time = os.time()
 		fakeModifiedTimes[path] = time
 
 		return time
@@ -712,6 +710,8 @@ local function ffiWindows_isWritable(fullPath)
 end
 
 local function ffiWindows_unwatchDirectory(dirWatcher)
+	hotLoader.log("[Windows] Unwatching directory '%s'.", dirWatcher.directory)
+
 	lookupArrayRemoveItem(ffiWindows_watchedDirectories, dirWatcher.directory, dirWatcher)
 
 	if C.FindCloseChangeNotification(dirWatcher.notification) == 0 then
@@ -849,7 +849,7 @@ end
 
 local directoryWatcherIndicesToRemove = {}
 
--- update( deltaTime )
+-- hotLoader.update( deltaTime )
 function hotLoader.update(dt)
 	local moduleCount = #watchedModules
 	local pathCount   = moduleCount + #watchedResources
@@ -968,106 +968,97 @@ end
 
 
 
--- interval = getCheckingInterval( )
+-- interval = hotLoader.getCheckingInterval( )
 function hotLoader.getCheckingInterval()
 	return checkingInterval
 end
 
--- setCheckingInterval( interval )
+-- hotLoader.setCheckingInterval( interval )
 function hotLoader.setCheckingInterval(interval)
 	checkingInterval = interval
 end
 
 
 
--- loader = getLoader( fileExtension )
+-- loader = hotLoader.getLoader( fileExtension )
 function hotLoader.getLoader(fileExt)
 	return loaders[fileExt:lower()]
 end
 
--- setLoader( fileExtension, [ fileExtension2..., ] loader|nil )
+-- hotLoader.setLoader( fileExtension, [ fileExtension2..., ] loader|nil )
 -- resource = loader( path )
 -- Set or remove a loader for a file extension.
 function hotLoader.setLoader(...)
 	local argCount = math.max(select("#", ...), 1)
 	local loader   = select(argCount, ...)
 
-	if not (type(loader) == "function" or loader == nil) then
-		errorf(2, "Bad argument #%d (loader) to 'setLoader'. (Expected function, got %s)", argCount, type(loader))
-	elseif argCount == 1 then
-		errorf(2, "No file extension specified.")
-	end
+	assertarg(argCount, "loader", loader, "function","nil")
+	if argCount == 1 then  errorf(2, "No file extension specified.")  end
 
 	for i = 1, argCount-1 do
 		local fileExt = select(i, ...)
-		if type(fileExt) ~= "string" then
-			errorf(2, "Bad argument #%d (fileExtension) to 'setLoader'. (Expected string, got %s)", i, type(fileExt))
-		end
+		assertarg(i, "fileExtension", fileExt, "string")
 		loaders[fileExt:lower()] = loader
 	end
 end
 
--- removeAllLoaders( )
+-- hotLoader.removeAllLoaders( )
 function hotLoader.removeAllLoaders()
 	loaders = {}
 end
 
--- loader|nil = getCustomLoader( path )
+-- loader|nil = hotLoader.getCustomLoader( path )
 function hotLoader.getCustomLoader(path)
 	return customLoaders[normalizePath(path)]
 end
 
--- setCustomLoader( path, [ path2..., ] loader|nil )
+-- hotLoader.setCustomLoader( path, [ path2..., ] loader|nil )
 -- resource = loader( path )
 -- Set or remove a loader for a specific file path.
 function hotLoader.setCustomLoader(...)
 	local argCount = math.max(select("#", ...), 1)
 	local loader   = select(argCount, ...)
 
-	if not (type(loader) == "function" or loader == nil) then
-		errorf(2, "Bad argument #%d (loader) to 'setCustomLoader'. (Expected function, got %s)", argCount, type(loader))
-	elseif argCount == 1 then
-		errorf(2, "No file path specified.")
-	end
+	assertarg(argCount, "loader", loader, "function","nil")
+	if argCount == 1 then  errorf(2, "No file path specified.")  end
 
 	for i = 1, argCount-1 do
 		local path = select(i, ...)
-		if type(path) ~= "string" then
-			errorf(2, "Bad argument #%d (path) to 'setCustomLoader'. (Expected string, got %s)", i, type(path))
-		end
+		assertarg(i, "path", path, "string")
 		customLoaders[normalizePath(path)] = loader
 	end
 end
 
--- removeAllCustomLoaders( )
+-- hotLoader.removeAllCustomLoaders( )
 function hotLoader.removeAllCustomLoaders()
 	customLoaders = {}
 end
 
--- loader|nil = getDefaultLoader( )
+-- loader|nil = hotLoader.getDefaultLoader( )
 function hotLoader.getDefaultLoader()
 	return defaultLoader
 end
 
--- setDefaultLoader( loader|nil )
--- loader: Specify nil to restore original default loader (which loads the file as a plain string).
+-- hotLoader.setDefaultLoader( loader|nil )
+-- resource = loader( path )
+-- Specify a nil loader to restore the original default loader (which loads the file as a plain string).
 function hotLoader.setDefaultLoader(loader)
-	if not (type(loader) == "function" or loader == nil) then
-		errorf(2, "Bad argument #1 (loader) to 'setDefaultLoader'. (Expected function, got %s)", type(loader))
-	end
+	assertarg(1, "loader", loader, "function","nil")
 	defaultLoader = loader
 end
 
--- disableDefaultLoader( )
+-- hotLoader.disableDefaultLoader( )
 function hotLoader.disableDefaultLoader()
 	defaultLoader = noDefaultLoader
 end
 
 
 
--- resource = load( path [, protectedLoad=false ] [, customLoader ] )
+-- resource = hotLoader.load( path [, customLoader ] )
+-- resource = hotLoader.load( path [, protectedLoad=false, customLoader ] )
+-- resource = customLoader( path )
 -- Returns nil and a message on error (if protectedLoad is true, otherwise errors are raised).
--- customLoader: If set, replaces the previous custom loader for path.
+-- If customLoader is set, it replaces the previous custom loader for path.
 function hotLoader.load(path, protected, loader)
 	if type(protected) == "function" then
 		protected, loader = false, protected
@@ -1091,13 +1082,14 @@ function hotLoader.load(path, protected, loader)
 	return watcher.value
 end
 
--- Forces the resource to reload at next load call.
--- unload( path )
+-- hotLoader.unload( path )
+-- Force the resource to reload at next load call.
+-- Stops monitoring the file.
 function hotLoader.unload(path)
 	unregisterWatcher(watchedResources, watchedResources[normalizePath(path)])
 end
 
--- preload( path, resource [, customLoader ] )
+-- hotLoader.preload( path, resource [, customLoader ] )
 function hotLoader.preload(path, res, loader)
 	if not res then
 		logError("The resource must not be nil or false. (Maybe you meant to use hotLoader.unload()?)")
@@ -1120,16 +1112,16 @@ function hotLoader.preload(path, res, loader)
 	end
 end
 
--- bool = hasLoaded( path )
+-- bool = hotLoader.hasLoaded( path )
 function hotLoader.hasLoaded(path)
 	return watchedResources[normalizePath(path)] ~= nil
 end
 
 
 
--- Requires a module just like the standard Lua require() function.
+-- module = hotLoader.require( moduleName )
+-- Require a module like the standard Lua require() function.
 -- Note that the library's system for modules is not connected to Lua's own system.
--- module = require( moduleName )
 function hotLoader.require(moduleName)
 	local watcher = (
 		watchedModules[moduleName]
@@ -1138,13 +1130,14 @@ function hotLoader.require(moduleName)
 	return watcher.value
 end
 
--- Forces the module to reload at next require call.
--- unrequire( moduleName )
+-- hotLoader.unrequire( moduleName )
+-- Force the module to reload at next require call.
+-- Stops monitoring the file.
 function hotLoader.unrequire(moduleName)
 	unregisterWatcher(watchedModules, watchedModules[moduleName])
 end
 
--- prerequire( moduleName, module )
+-- hotLoader.prerequire( moduleName, module )
 function hotLoader.prerequire(moduleName, module)
 	if module == nil then
 		logError("The module must not be nil. (Maybe you meant to use hotLoader.unrequire()?)")
@@ -1161,31 +1154,55 @@ function hotLoader.prerequire(moduleName, module)
 	end
 end
 
--- bool = hasRequired( moduleName )
+-- bool = hotLoader.hasRequired( moduleName )
 function hotLoader.hasRequired(moduleName)
 	return watchedModules[moduleName] ~= nil
 end
 
 
 
+-- hotLoader.monitor( path, onFileModified )
+-- hotLoader.monitor( path, callbackData, onFileModified )
+-- onFileModified = function( path, callbackData|nil )
+function hotLoader.monitor(path, cbData, cb)
+	assertarg(1, "path", path, "string")
+	local callWithData = (cb ~= nil)
+
+	if callWithData then
+		assertarg(3, "onFileModified", cb, "function")
+	else
+		cbData, cb = nil, cbData
+		assertarg(2, "onFileModified", cb, "function")
+	end
+
+	hotLoader.preload(path, true, function(path)
+		if    callWithData
+		then  cb(path, cbData) -- @Incomplete: Allow custom loaders to optionally receive data too.
+		else  cb(path)  end
+		return true
+	end)
+end
+
+
+
+-- hotLoader.allowExternalPaths( bool )
 -- Allow hotLoader to access files outside the default LÖVE directories. May not always work.
 -- Note that absolute paths are required to access external files (e.g. "C:/Images/Duck.png").
 -- This setting is not used outside LÖVE.
--- allowExternalPaths( bool )
 function hotLoader.allowExternalPaths(state)
 	allowPathsOutsideLove = not not state
 end
 
--- bool = isAllowingExternalPaths( )
+-- bool = hotLoader.isAllowingExternalPaths( )
 function hotLoader.isAllowingExternalPaths(state)
 	return allowPathsOutsideLove
 end
 
 
 
+-- hotLoader.resetCheckingState( )
 -- Make the library start over and check the first monitored file next time hotLoader.update() is called.
 -- The current update is aborted if this is called from within a loader.
--- resetCheckingState( )
 function hotLoader.resetCheckingState()
 	time              = 0
 	lastCheckedIndex  = 0
@@ -1194,16 +1211,18 @@ end
 
 
 
+-- logFormat = hotLoader.getLogFormat( )
 function hotLoader.getLogFormat()
 	return logFormat
 end
 
+-- hotLoader.setLogFormat( logFormat )
 -- Set message format used by hotLoader.log().
 -- Use the percent sign to indicate where the values go:
---     %d = date (YYYY-MM-DD)
---     %m = message
---     %t = time (HH:MM:SS)
---     %% = a literal percent sign
+--   %m = the message
+--   %d = the current date (YYYY-MM-DD)
+--   %t = the current time (HH:MM:SS)
+--   %% = a literal percent sign
 -- The default format is "[HotLoader|%t] %m"
 function hotLoader.setLogFormat(s)
 	local hasD = false
@@ -1225,6 +1244,7 @@ end
 
 
 
+-- hotLoader.cleanup( )
 -- Free up allocated OS resources. Calling this is only necessary if the library
 -- module is unloaded (which probably no one does - only our test suite), and
 -- currently only in LuaJIT (including LÖVE) on Windows. @Undocumented
@@ -1235,6 +1255,7 @@ end
 
 
 
+-- hotLoader.log( formatString, value1, ...)
 -- Internal function for printing messages.
 -- To silence the library you can do hotLoader.log=function()end
 function hotLoader.log(s, ...)
