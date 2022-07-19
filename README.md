@@ -93,7 +93,7 @@ end
 ## Documentation
 
 - [Website](http://refreezed.com/luahotloader/docs/)
-- [The source code](preprocess.lua)
+- [The source code](hotLoader.lua)
 
 
 
