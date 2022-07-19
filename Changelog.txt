@@ -1,0 +1,27 @@
+Changelog
+LuaHotLoader
+
+v1.3 (2022-07-19)
+- Added functions: monitor(), isAllowingExternalPaths().
+- Now normalizing paths and file extensions.
+- Module loading is more robust in very rare cases.
+- Fixed reloaded modules not getting loaded in protected mode like they should have.
+- Fixed required modules not getting their name as an argument.
+- Fixed %% in the log format resulting in %% getting printed too.
+- Fixed files innocently sometimes being treated as text files.
+- Fixed some incorrect documentation.
+- LÖVE: Using a more efficient way of monitoring files in Windows using WinAPI.
+- LÖVE: Updated list of automatically added loaders.
+
+v1.2 (2019-09-06)
+- Added functions: resetCheckingState, setLogFormat/getLogFormat.
+- LÖVE: Fixed error when both love.graphics and love.audio weren't loaded.
+
+v1.1 (2019-03-06)
+- Added functions: hasLoaded, hasRequired.
+
+v1.0.1 (2018-10-09)
+- Fixed warning in LÖVE 11.
+
+v1.0 (2018-10-08)
+- Initial release!

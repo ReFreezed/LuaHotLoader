@@ -9,8 +9,8 @@ io.stdout:setvbuf("no")
 io.stderr:setvbuf("no")
 
 -- Monkeypatch modules before loading library.
-local lfs         = not love and require"lfs"
-local fakeModTime = 1
+local lfs          = not love and require"lfs"
+local fakeModTimes = {}
 
 local function pack(...)
 	return {n=select("#", ...), ...}
@@ -24,7 +24,7 @@ if love then
 			local info, err = _getInfo(path, ...)
 			if not info then  return nil, err  end
 
-			info.modtime = fakeModTime
+			info.modtime = fakeModTimes[path] or 1
 			return info
 		end
 
@@ -32,18 +32,18 @@ if love then
 		local _getLastModified = love.filesystem.getLastModified
 		local _exists          = love.filesystem.exists
 
-		function love.filesystem.getLastModified(path)  return fakeModTime  end
-		function love.filesystem.exists         (path)  return true         end
+		function love.filesystem.getLastModified(path)  return fakeModTimes[path] or 1  end
+		function love.filesystem.exists         (path)  return true                     end
 	end
 
 else
 	local _attributes = lfs.attributes
 
 	function lfs.attributes(path, requestNameOrResultTable)
-		if requestNameOrResultTable == "modification" then  return fakeModTime  end
+		if requestNameOrResultTable == "modification" then  return fakeModTimes[path] or 1  end
 
 		local values = pack(_attributes(path, requestNameOrResultTable))
-		if type(values[1]) == "table" then  values[1].modification = fakeModTime  end
+		if type(values[1]) == "table" then  values[1].modification = fakeModTimes[path] or 1  end
 
 		return unpack(values, 1, values.n)
 	end
@@ -87,25 +87,26 @@ do
 	local hotLoader = newHotLoader()
 
 	-- Load file (with a custom loader).
-	local path  = (love and "" or thisDir) .. "test.txt"
-	local loads = 0
+	local path1         = (love and "" or thisDir) .. "test1.txt"
+	local loads         = 0
+	fakeModTimes[path1] = 1
 
-	local text = hotLoader.load(path, function(path)
+	local text = hotLoader.load(path1, function(path)
 		loads = loads + 1
 		return readFile(path)
 	end)
-	assert(hotLoader.hasLoaded(path))
+	assert(hotLoader.hasLoaded(path1))
 	assert(loads == 1) -- The custom loader should've been used.
-	assert(text == "foobar")
-	assert(hotLoader.load(path) == "foobar")
+	assert(text == "foobar1")
+	assert(hotLoader.load(path1) == "foobar1")
 	assert(loads == 1) -- The file shouldn't have loaded again.
 
 	-- Reload file.
-	hotLoader.unload(path)
-	assert(not hotLoader.hasLoaded(path))
-	hotLoader.unload(path) -- Should do nothing.
-	hotLoader.load(path)
-	assert(hotLoader.hasLoaded(path))
+	hotLoader.unload(path1)
+	assert(not hotLoader.hasLoaded(path1))
+	hotLoader.unload(path1) -- Should do nothing.
+	hotLoader.load(path1)
+	assert(hotLoader.hasLoaded(path1))
 	assert(loads == 2)
 
 	-- Run updates for a couple of seconds.
@@ -113,11 +114,46 @@ do
 	assert(loads == 2) -- Nothing should've happened.
 
 	-- Update the file.
-	fakeModTime = fakeModTime + 1
+	fakeModTimes[path1] = fakeModTimes[path1] + 1
+
+	-- Run updates for a couple of seconds.
+	print("Should reload.")
+	for i = 1, 10 do  hotLoader.update(.2)  end
+	assert(loads == 3) -- The file should've reloaded.
+
+	-- Monitor the file (which replaces the custom loader).
+	local path2         = (love and "" or thisDir) .. "test2.txt"
+	local monitors      = 0
+	fakeModTimes[path2] = 1
+	hotLoader.monitor(path2, function(path, ...)
+		monitors = monitors + 1
+		assert(select("#", ...) == 0)
+	end)
+	assert(monitors == 0)
 
 	-- Run updates for a couple of seconds.
 	for i = 1, 10 do  hotLoader.update(.2)  end
-	assert(loads == 3) -- The file should've reloaded.
+	assert(monitors == 0)
+
+	-- Update the file.
+	fakeModTimes[path2] = fakeModTimes[path2] + 1
+
+	-- Run updates for a couple of seconds.
+	print("Should reload.")
+	for i = 1, 10 do  hotLoader.update(.2)  end
+	assert(monitors == 1)
+	assert(loads    == 3) -- Make sure the previous file didn't reload.
+
+	-- Monitor with data.
+	hotLoader.monitor(path2, "testdata", function(path, data)
+		monitors = monitors + 1
+		assert(data == "testdata")
+	end)
+	assert(monitors == 1)
+	fakeModTimes[path2] = fakeModTimes[path2] + 1
+	print("Should reload.")
+	for i = 1, 10 do  hotLoader.update(.2)  end
+	assert(monitors == 2)
 end
 
 --
@@ -132,8 +168,10 @@ do
 	end
 
 	-- Require file.
-	local moduleName = "test"
-	_G.requires = 0
+	local moduleName         = "test"
+	local modulePath         = (love and "" or thisDir) .. "test.lua"
+	fakeModTimes[modulePath] = 1
+	_G.requires              = 0
 	assert(not hotLoader.hasRequired(moduleName))
 	assert(hotLoader.require(moduleName) == "foobar")
 	assert(hotLoader.hasRequired(moduleName))
@@ -154,9 +192,10 @@ do
 	assert(requires == 2) -- Nothing should've happened.
 
 	-- Update the file.
-	fakeModTime = fakeModTime + 1
+	fakeModTimes[modulePath] = fakeModTimes[modulePath] + 1
 
 	-- Run updates for a couple of seconds.
+	print("Should reload.")
 	for i = 1, 10 do  hotLoader.update(.2)  end
 	assert(requires == 3) -- The file should've reloaded.
 

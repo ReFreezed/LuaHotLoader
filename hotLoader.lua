@@ -239,12 +239,13 @@ local isLovePath
 
 
 
-local love_getFileInfo = love and love.filesystem.getInfo
+local love_getFileInfo      = love and love.filesystem.getInfo
+local love_getFileInfo_info = {}
 
 local function fileExists(path)
 	if isLovePath(path) then
 		if love_getFileInfo then
-			return (love_getFileInfo(path, "file") ~= nil)
+			return (love_getFileInfo(path, "file", love_getFileInfo_info) ~= nil)
 		else
 			return love.filesystem.exists(path)
 		end
@@ -347,7 +348,7 @@ local getLastModifiedTime
 		if isLovePath(path) then
 			if love_getFileInfo then
 				-- LÖVE 11.0+
-				local info = love_getFileInfo(path, "file")
+				local info = love_getFileInfo(path, "file", love_getFileInfo_info)
 				local time = info and info.modtime
 				if time then  return time  end
 
@@ -1025,7 +1026,7 @@ end
 
 -- hotLoader.removeAllLoaders( )
 function hotLoader.removeAllLoaders()
-	loaders = {}
+	if next(loaders) then  loaders = {}  end
 end
 
 -- loader|nil = hotLoader.getCustomLoader( path )
@@ -1052,7 +1053,7 @@ end
 
 -- hotLoader.removeAllCustomLoaders( )
 function hotLoader.removeAllCustomLoaders()
-	customLoaders = {}
+	if next(customLoaders) then  customLoaders = {}  end
 end
 
 -- loader|nil = hotLoader.getDefaultLoader( )
@@ -1192,7 +1193,7 @@ function hotLoader.monitor(path, cbData, cb)
 	if callWithData then
 		assertarg(3, "onFileModified", cb, "function")
 	else
-		cbData, cb = nil, cbData
+		cb = cbData
 		assertarg(2, "onFileModified", cb, "function")
 	end
 
