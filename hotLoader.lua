@@ -732,7 +732,7 @@ local function ffiWindows_isWritable(fullPath)
 end
 
 local function ffiWindows_unwatchDirectory(dirWatcher)
-	hotLoader.log("[Windows] Unwatching directory '%s'.", dirWatcher.directory)
+	-- hotLoader.log("[Windows] Unwatching directory '%s'.", dirWatcher.directory) -- @Incomplete: Verbose logging.
 
 	lookupArrayRemoveItem(ffiWindows_watchedDirectories, dirWatcher.directory, dirWatcher)
 
@@ -793,7 +793,7 @@ local function createAndRegisterWatcher(level, watchers, id, path, value)
 			if ffi_pointerToInt(notification) == INVALID_HANDLE_VALUE and false then
 				ffiWindows_logLastError("FindFirstChangeNotificationW", "directory="..dir)
 			else
-				hotLoader.log("[Windows] Watching directory '%s'.", dir)
+				-- hotLoader.log("[Windows] Watching directory '%s'.", dir) -- @Incomplete: Verbose logging.
 				dirWatcher = {directory=dir, watcherCount=0, notification=notification}
 				lookupArrayInsert(ffiWindows_watchedDirectories, dir, dirWatcher)
 			end

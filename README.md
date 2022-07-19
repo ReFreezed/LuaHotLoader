@@ -1,35 +1,41 @@
 # LuaHotLoader
 
-![version 1.2](https://img.shields.io/badge/version-1.2-green.svg)
+<p>
+	<a href="https://github.com/ReFreezed/LuaHotLoader/releases/latest">
+		<img src="https://img.shields.io/github/release/ReFreezed/LuaHotLoader.svg" alt="">
+	</a>
+	<a href="https://github.com/ReFreezed/LuaHotLoader/blob/master/LICENSE.txt">
+		<img src="https://img.shields.io/github/license/ReFreezed/LuaHotLoader.svg" alt="">
+	</a>
+</p>
 
-<!-- ![https://img.shields.io/github/release/ReFreezed/LuaPreprocess.svg](https://github.com/ReFreezed/LuaPreprocess/releases/latest) -->
-<!-- ![https://img.shields.io/github/license/ReFreezed/LuaPreprocess.svg](LICENSE.txt) -->
+**LuaHotLoader** is a Lua library for hot-loading files, including modules.
+Works with *LuaFileSystem* or [*LÖVE*](https://love2d.org/) 0.10+.
 
-Hot-load any file, including Lua modules.
-Works with *LuaFileSystem* or [*LÖVE*](https://love2d.org/) (including 11.0 and 0.10).
-
-- [Usage with LuaFileSystem](#usage-with-luafilesystem)
-- [Usage in LÖVE](#usage-in-lÖve)
-- [API](#api)
-
+- [Basic usage](#basic-usage)
+	- [With LuaFileSystem](#with-luafilesystem)
+	- [In LÖVE](#in-lÖve)
+- [Documentation](http://refreezed.com/luahotloader/docs/)
+- [Help](#help)
 
 
-## Usage with LuaFileSystem
+
+## Basic usage
+
+
+### With LuaFileSystem
 
 ```lua
-local hotLoader     = require("hotLoader")
-local duckImagePath = "duck.jpg"
-
--- Initial loading of resources (optional).
-hotLoader.load(duckImagePath)
+local hotLoader = require("hotLoader")
+local duckPath  = "duck.jpg"
 
 -- Program loop.
-local lastTime = os.time()
+local lastTime = os.clock()
 
 while true do
-	local currentTime = os.time()
+	local currentTime = os.clock()
 
-	-- Allow hotLoader to reload module and resource files that have been updated.
+	-- Allow the library to reload module and resource files that have been updated.
 	hotLoader.update(currentTime-lastTime)
 
 	-- Show if debug mode is enabled.
@@ -39,14 +45,15 @@ while true do
 	end
 
 	-- Show size of duck image.
-	local duckImageData = hotLoader.load(duckImagePath)
-	print("Duck is "..(#duckImageData).." bytes")
+	local duckData = hotLoader.load(duckPath)
+	print("Duck is "..(#duckData).." bytes")
 
 	lastTime = currentTime
 end
 ```
 
-## Usage in LÖVE
+
+### In LÖVE
 
 ```lua
 local hotLoader = require("hotLoader")
@@ -56,18 +63,15 @@ local player = {
 }
 
 function love.load()
-	-- Tell hotLoader to load .png files using love.graphics.newImage().
+	-- Tell the library to load .png files using love.graphics.newImage().
 	hotLoader.setLoader("png", love.graphics.newImage)
 
-	-- Note: hotLoader automatically adds common loaders in LÖVE, including
+	-- Note: The library automatically adds common loaders in LÖVE, including
 	-- for .png files. You can call hotLoader.removeAllLoaders() to undo this.
-
-	-- Do the initial loading of resources (optional).
-	hotLoader.load(player.imagePath)
 end
 
 function love.update(dt)
-	-- Allow hotLoader to reload module and resource files that have been updated.
+	-- Allow the library to reload module and resource files that have been updated.
 	hotLoader.update(dt)
 end
 
@@ -86,35 +90,18 @@ end
 
 
 
-## API
+## Documentation
 
-Check the [source code](hotLoader.lua) for more info.
+- [Website](http://refreezed.com/luahotloader/docs/)
+- [The source code](preprocess.lua)
 
-```lua
-hotLoader.allowExternalPaths()
-hotLoader.disableDefaultLoader()
-hotLoader.getCheckingInterval()
-hotLoader.getCustomLoader()
-hotLoader.getDefaultLoader()
-hotLoader.getLoader()
-hotLoader.getLogformat()
-hotLoader.hasLoaded()
-hotLoader.hasRequired()
-hotLoader.isAllowingExternalPaths()
-hotLoader.load()
-hotLoader.log()
-hotLoader.preload()
-hotLoader.prerequire()
-hotLoader.removeAllCustomLoaders()
-hotLoader.removeAllLoaders()
-hotLoader.require()
-hotLoader.resetCheckingState()
-hotLoader.setCheckingInterval()
-hotLoader.setCustomLoader()
-hotLoader.setDefaultLoader()
-hotLoader.setLoader()
-hotLoader.setLogformat()
-hotLoader.unload()
-hotLoader.unrequire()
-hotLoader.update()
-```
+
+
+## Help
+
+Got a question?
+If the [documentation](http://refreezed.com/luahotloader/docs/) doesn't have the answer,
+look if someone has asked the question in the [issue tracker](https://github.com/ReFreezed/LuaHotLoader/issues?q=is%3Aissue),
+or [create a new issue](https://github.com/ReFreezed/LuaHotLoader/issues/new).
+
+
